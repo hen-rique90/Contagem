@@ -1,0 +1,2021 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>AutoParts Audit - Balanço de Estoque & Conferência</title>
+    <meta name="description" content="Conferência e balanço de estoque por código de barras, com leitor pistola ou câmera do celular/tablet.">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Balanço">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+    <!-- Tudo local: o app funciona sem internet depois do primeiro acesso -->
+    <link rel="stylesheet" href="css/app.css">
+    <link rel="stylesheet" href="vendor/fontawesome/css/fontawesome.min.css">
+    <link rel="stylesheet" href="vendor/fontawesome/css/solid.min.css">
+    <script src="vendor/xlsx.full.min.js"></script>
+    <script src="vendor/html5-qrcode.min.js"></script>
+</head>
+<body class="text-slate-800 min-h-screen flex flex-col">
+
+    <!-- HEADER SUPERIOR INDUSTRIAL -->
+    <header class="bg-slate-900 text-white shadow-lg sticky top-0 z-30 no-print">
+        <div class="max-w-[1600px] mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <!-- Logo & Nome -->
+            <div class="flex items-center gap-3">
+                <div class="w-11 h-11 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-black text-xl shadow-md">
+                    <i class="fa-solid fa-barcode"></i>
+                </div>
+                <div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <h1 class="font-extrabold text-lg tracking-tight leading-none">AUTOPARTS <span class="text-amber-400">AUDIT</span></h1>
+                        <span id="badgeSessionStatus" class="text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 max-w-[180px] truncate">Sem Planilha</span>
+                        <span id="badgeOffline" class="hidden text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40"><i class="fa-solid fa-wifi mr-1"></i>Offline</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-0.5">Conferência & Balanço de Estoque via Leitor / Tablet</p>
+                </div>
+            </div>
+
+            <!-- Controles Rápidos Globais -->
+            <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+                <!-- Instalar App (aparece só quando o navegador permite) -->
+                <button onclick="installApp()" id="btnInstall" class="hidden items-center gap-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow transition active:scale-95">
+                    <i class="fa-solid fa-download"></i>
+                    <span>Instalar App</span>
+                </button>
+
+                <!-- Alternar Modo Contagem Cega -->
+                <button onclick="toggleBlindMode()" id="btnBlindMode" class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 transition active:scale-95" title="Oculta a quantidade do sistema para evitar vícios na contagem">
+                    <i id="iconBlindMode" class="fa-solid fa-eye text-emerald-400"></i>
+                    <span>Contagem Cega: <strong id="txtBlindMode">OFF</strong></span>
+                </button>
+
+                <!-- Botão Som -->
+                <button onclick="toggleSound()" id="btnSound" class="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 transition active:scale-95" title="Ativar/Desativar Bipes Sonoros">
+                    <i id="iconSound" class="fa-solid fa-volume-high"></i>
+                </button>
+
+                <!-- Carregar Planilha -->
+                <button onclick="openUploadModal()" class="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow transition active:scale-95">
+                    <i class="fa-solid fa-file-import"></i>
+                    <span>Subir Planilha</span>
+                </button>
+
+                <!-- Exportar Relatório -->
+                <button onclick="openExportModal()" class="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition active:scale-95">
+                    <i class="fa-solid fa-file-excel"></i>
+                    <span>Exportar Balanço</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- AVISO DE NOVA VERSÃO -->
+    <div id="updateBanner" class="hidden no-print bg-blue-600 text-white text-xs font-semibold">
+        <div class="max-w-[1600px] mx-auto px-4 py-2 flex items-center justify-between gap-3">
+            <span><i class="fa-solid fa-rotate mr-1.5"></i>Nova versão do app disponível. Suas contagens são mantidas.</span>
+            <button onclick="applyUpdate()" class="px-3 py-1 rounded-lg bg-white text-blue-700 font-bold">Atualizar</button>
+        </div>
+    </div>
+
+    <!-- BARRA DE STATUS & KPIs -->
+    <section class="bg-white border-b border-slate-200 shadow-sm no-print">
+        <div class="max-w-[1600px] mx-auto px-4 py-3">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <!-- Progresso Geral -->
+                <div class="col-span-2 md:col-span-1 bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between">
+                    <div class="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase">
+                        <span>Progresso</span>
+                        <span id="kpiPercent" class="text-blue-600 font-bold text-sm">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden my-1.5">
+                        <div id="kpiProgressBar" class="bg-blue-600 h-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <div class="text-[11px] text-slate-500 flex justify-between">
+                        <span>SKUs: <strong id="kpiTotalSkus" class="text-slate-800">0</strong></span>
+                        <span>Peças Bipadas: <strong id="kpiTotalUnitsCounted" class="text-slate-800">0</strong></span>
+                    </div>
+                </div>
+
+                <!-- Conferidos / Visitados -->
+                <div onclick="setFilter('counted')" class="cursor-pointer bg-blue-50/60 hover:bg-blue-100/60 p-3 rounded-xl border border-blue-200 transition flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-blue-700 uppercase">Itens Bipados</p>
+                        <p id="kpiCounted" class="text-2xl font-extrabold text-blue-900 mt-0.5">0</p>
+                        <p class="text-[11px] text-blue-600">Toque para filtrar</p>
+                    </div>
+                    <div class="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-check-double"></i>
+                    </div>
+                </div>
+
+                <!-- Pendentes (Não Bipados) -->
+                <div onclick="setFilter('pending')" class="cursor-pointer bg-amber-50/60 hover:bg-amber-100/60 p-3 rounded-xl border border-amber-200 transition flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-amber-700 uppercase">Pendentes</p>
+                        <p id="kpiPending" class="text-2xl font-extrabold text-amber-900 mt-0.5">0</p>
+                        <p class="text-[11px] text-amber-700">Ainda não bipados</p>
+                    </div>
+                    <div class="w-10 h-10 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-hourglass-half"></i>
+                    </div>
+                </div>
+
+                <!-- Estoque Batendo (OK) -->
+                <div onclick="setFilter('ok')" class="cursor-pointer bg-emerald-50/60 hover:bg-emerald-100/60 p-3 rounded-xl border border-emerald-200 transition flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-emerald-700 uppercase">Estoque OK</p>
+                        <p id="kpiExact" class="text-2xl font-extrabold text-emerald-900 mt-0.5">0</p>
+                        <p class="text-[11px] text-emerald-700">Sem divergência</p>
+                    </div>
+                    <div class="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-circle-check"></i>
+                    </div>
+                </div>
+
+                <!-- Com Divergência (Falta / Sobra) -->
+                <div onclick="setFilter('divergent')" class="cursor-pointer bg-rose-50/60 hover:bg-rose-100/60 p-3 rounded-xl border border-rose-200 transition flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-rose-700 uppercase">Divergências</p>
+                        <p id="kpiDivergent" class="text-2xl font-extrabold text-rose-900 mt-0.5">0</p>
+                        <p class="text-[11px] text-rose-700">Falta ou Sobra</p>
+                    </div>
+                    <div class="w-10 h-10 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ÁREA PRINCIPAL (ESQUERDA: SCANNER + ITEM ATIVO / DIREITA: LISTA DE ESTOQUE) -->
+    <main class="flex-1 max-w-[1600px] w-full mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-12 gap-5 no-print">
+
+        <!-- COLUNA ESQUERDA -->
+        <div class="lg:col-span-5 flex flex-col gap-4">
+
+            <!-- PAINEL DE LEITURA DE CÓDIGO DE BARRAS -->
+            <div class="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-4 transition-all" id="scannerBoxContainer">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                    <div class="flex items-center gap-2">
+                        <span id="focusStatusDot" class="w-3 h-3 rounded-full bg-emerald-500 animate-ping"></span>
+                        <span id="focusStatusDotStatic" class="w-3 h-3 rounded-full bg-emerald-500 -ml-5"></span>
+                        <h2 class="font-bold text-sm uppercase tracking-wider text-slate-700">Leitor de Código de Barras</h2>
+                    </div>
+
+                    <!-- Foco automático: para leitor pistola USB/Bluetooth -->
+                    <button onclick="toggleAutoFocus()" id="btnAutoFocus" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 transition" title="Mantém o cursor no campo de leitura (ideal para leitor pistola). Fica pausado enquanto a câmera está ligada.">
+                        <i class="fa-solid fa-lock text-[10px]"></i>
+                        <span>Foco Automático: ON</span>
+                    </button>
+                </div>
+
+                <!-- Seletor de Modo de Bipe -->
+                <div class="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl mb-3">
+                    <button onclick="setScanMode('auto')" id="btnModeAuto" class="py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 bg-slate-900 text-white shadow transition">
+                        <i class="fa-solid fa-bolt text-amber-400"></i>
+                        <span>Soma Rápida (+1 / Bipe)</span>
+                    </button>
+                    <button onclick="setScanMode('manual')" id="btnModeManual" class="py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 text-slate-600 hover:text-slate-900 transition">
+                        <i class="fa-solid fa-calculator"></i>
+                        <span>Pedir Qtd em Lote</span>
+                    </button>
+                </div>
+
+                <!-- Campo do leitor (compatível com pistola USB/Bluetooth) -->
+                <form onsubmit="handleBarcodeSubmit(event)" class="relative flex gap-2">
+                    <div class="relative flex-1 min-w-0">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                            <i class="fa-solid fa-barcode text-xl"></i>
+                        </div>
+                        <input
+                            type="text"
+                            id="barcodeInput"
+                            autocomplete="off"
+                            autocorrect="off"
+                            autocapitalize="off"
+                            spellcheck="false"
+                            enterkeyhint="go"
+                            placeholder="Bipe ou digite EAN / SKU..."
+                            class="w-full pl-11 pr-10 py-3.5 bg-slate-50 border-2 border-blue-500 rounded-xl font-mono text-base sm:text-lg font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:bg-white transition"
+                        >
+                        <button type="button" onclick="clearBarcodeInput()" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600" aria-label="Limpar">
+                            <i class="fa-solid fa-xmark text-lg"></i>
+                        </button>
+                    </div>
+
+                    <button type="submit" class="px-4 sm:px-5 py-3.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-xl shadow flex items-center justify-center gap-2 transition">
+                        <span class="hidden sm:inline">Bipar</span>
+                        <i class="fa-solid fa-arrow-turn-down fa-rotate-90"></i>
+                    </button>
+
+                    <!-- Botão Câmera -->
+                    <button type="button" onclick="toggleCameraScanner()" id="btnCameraToggle" class="px-4 py-3.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-amber-400 font-bold rounded-xl shadow flex items-center justify-center transition" title="Usar a câmera do aparelho" aria-label="Usar a câmera">
+                        <i class="fa-solid fa-camera text-lg"></i>
+                    </button>
+                </form>
+
+                <!-- Área da Câmera (oculta por padrão) -->
+                <div id="cameraScannerContainer" class="hidden mt-3 pt-3 border-t border-slate-200">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold text-slate-600 flex items-center gap-1.5">
+                            <i class="fa-solid fa-video text-rose-500 animate-pulse"></i> Câmera Ativa
+                        </span>
+                        <div class="flex items-center gap-3">
+                            <button onclick="toggleTorch()" id="btnTorch" class="hidden text-xs font-semibold text-amber-700 hover:underline"><i class="fa-solid fa-lightbulb mr-1"></i>Lanterna</button>
+                            <button onclick="stopCameraScanner()" class="text-xs font-semibold text-rose-600 hover:underline">Fechar Câmera</button>
+                        </div>
+                    </div>
+                    <div id="qr-reader" class="w-full rounded-xl overflow-hidden bg-black"></div>
+                    <p class="text-[11px] text-slate-500 mt-2">
+                        <i class="fa-solid fa-circle-info mr-1"></i>Cada código conta <strong>uma vez</strong> enquanto estiver na frente da câmera. Para contar outra unidade igual, tire a peça da frente e aponte de novo.
+                    </p>
+                </div>
+
+                <!-- Alerta de Feedback Instantâneo -->
+                <div id="scanFeedbackBanner" class="hidden mt-3 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <i id="scanFeedbackIcon" class="fa-solid fa-circle-check text-base"></i>
+                        <span id="scanFeedbackText" class="break-words">Leitura realizada com sucesso!</span>
+                    </div>
+                    <span id="scanFeedbackTime" class="font-mono text-[11px] opacity-75 shrink-0">agora</span>
+                </div>
+            </div>
+
+            <!-- PAINEL: ÚLTIMO ITEM BIPADO / SELECIONADO -->
+            <div id="activeItemCard" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex-1 flex flex-col justify-between relative overflow-hidden">
+                <!-- Estado Vazio -->
+                <div id="emptyActiveState" class="my-auto py-10 text-center">
+                    <div class="w-16 h-16 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center text-3xl mx-auto mb-3">
+                        <i class="fa-solid fa-box-open"></i>
+                    </div>
+                    <h3 class="font-bold text-slate-700 text-base">Aguardando Leitura de Peça</h3>
+                    <p class="text-xs text-slate-500 max-w-xs mx-auto mt-1">
+                        Aponte o leitor de código de barras para qualquer peça ou toque em um item da lista para ajustar manualmente.
+                    </p>
+                    <div class="mt-4 flex flex-wrap justify-center gap-2">
+                        <button onclick="simulateRandomScan()" class="text-xs font-semibold px-3 py-2 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            <span>Simular Bipe de Teste</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Detalhes do Item Ativo -->
+                <div id="filledActiveState" class="hidden flex-col h-full justify-between">
+                    <div>
+                        <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="px-2.5 py-1 rounded-lg bg-slate-900 text-amber-400 font-mono text-xs font-bold flex items-center gap-1.5">
+                                    <i class="fa-solid fa-location-dot"></i>
+                                    <span id="activeItemLocation">CORREDOR A1</span>
+                                </span>
+                                <span id="activeItemStatusBadge" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-100 text-blue-800">
+                                    EM CONFERÊNCIA
+                                </span>
+                            </div>
+                            <span id="activeItemLastTime" class="text-xs text-slate-400 font-mono">Bipado às --:--</span>
+                        </div>
+
+                        <h3 id="activeItemDesc" class="font-extrabold text-xl sm:text-2xl text-slate-900 mt-3 leading-snug break-words"></h3>
+
+                        <div class="grid grid-cols-2 gap-2 mt-3">
+                            <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                                <span class="text-[10px] font-bold uppercase text-slate-400 block">Cód. Barras (EAN)</span>
+                                <span id="activeItemBarcode" class="font-mono font-bold text-sm sm:text-base text-slate-800 break-all"></span>
+                            </div>
+                            <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                                <span class="text-[10px] font-bold uppercase text-slate-400 block">Cód. Interno / Ref.</span>
+                                <span id="activeItemSku" class="font-mono font-bold text-sm sm:text-base text-slate-800 break-all"></span>
+                            </div>
+                        </div>
+
+                        <!-- Sistema vs Contado vs Diferença -->
+                        <div class="grid grid-cols-3 gap-3 mt-4">
+                            <div class="bg-slate-100 p-3 rounded-2xl border border-slate-200 text-center flex flex-col justify-center">
+                                <span class="text-[11px] font-bold uppercase text-slate-500">Saldo Sistema</span>
+                                <span id="activeItemExpected" class="font-mono font-extrabold text-2xl sm:text-3xl text-slate-700 mt-1">0</span>
+                            </div>
+                            <div class="bg-blue-600 text-white p-3 rounded-2xl shadow-md text-center flex flex-col justify-center ring-4 ring-blue-600/15">
+                                <span class="text-[11px] font-bold uppercase text-blue-100">Qtd Contada</span>
+                                <span id="activeItemCounted" class="font-mono font-black text-3xl sm:text-4xl mt-0.5">0</span>
+                            </div>
+                            <div id="activeItemDiffBox" class="bg-emerald-50 p-3 rounded-2xl border border-emerald-200 text-center flex flex-col justify-center">
+                                <span class="text-[11px] font-bold uppercase text-emerald-700">Diferença</span>
+                                <span id="activeItemDiff" class="font-mono font-extrabold text-2xl sm:text-3xl text-emerald-700 mt-1">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Ajuste Rápido -->
+                    <div class="mt-5 pt-4 border-t border-slate-200">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-bold uppercase text-slate-500">Ajuste Rápido no Toque</span>
+                            <button onclick="resetActiveItemCount()" class="text-xs font-semibold text-rose-600 hover:underline flex items-center gap-1">
+                                <i class="fa-solid fa-rotate-left"></i> Zerar Contagem
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-5 gap-2">
+                            <button onclick="adjustActiveItem(-1)" class="py-3.5 rounded-xl bg-rose-100 hover:bg-rose-200 active:scale-95 text-rose-800 font-mono font-extrabold text-lg border border-rose-300 transition shadow-sm">-1</button>
+                            <button onclick="adjustActiveItem(1)" class="py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-mono font-extrabold text-lg transition shadow-md">+1</button>
+                            <button onclick="adjustActiveItem(5)" class="py-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 font-mono font-bold text-base border border-slate-300 transition">+5</button>
+                            <button onclick="adjustActiveItem(10)" class="py-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 font-mono font-bold text-base border border-slate-300 transition">+10</button>
+                            <button onclick="openSetQtyModal()" class="py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-bold text-xs sm:text-sm transition shadow-sm flex flex-col items-center justify-center leading-tight">
+                                <i class="fa-solid fa-keyboard mb-0.5"></i>
+                                <span>Digitar</span>
+                            </button>
+                        </div>
+
+                        <!-- Observação / Avaria -->
+                        <div class="mt-3 flex flex-wrap sm:flex-nowrap gap-2">
+                            <input
+                                type="text"
+                                id="activeItemNotes"
+                                onchange="saveActiveItemNote(this.value)"
+                                placeholder="Observação (ex: caixa avariada, prateleira trocada...)"
+                                class="flex-1 min-w-0 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white"
+                            >
+                            <button onclick="quickNote('Peça Avariada')" class="px-2.5 py-1.5 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg whitespace-nowrap">+ Avaria</button>
+                            <button onclick="quickNote('Local Trocado')" class="px-2.5 py-1.5 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg whitespace-nowrap">+ Local</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- COLUNA DIREITA: BUSCA, FILTROS E LISTA DE ESTOQUE -->
+        <div class="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden h-[680px] lg:h-[calc(100vh-195px)]">
+
+            <div class="p-4 border-b border-slate-200 bg-slate-50/50 space-y-3">
+                <div class="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                    <div class="relative flex-1 w-full">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        <input
+                            type="search"
+                            id="searchInput"
+                            oninput="renderInventoryList()"
+                            placeholder="Buscar por nome, código interno, EAN ou prateleira..."
+                            class="w-full pl-10 pr-9 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                        >
+                        <button onclick="clearSearch()" id="btnClearSearch" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" aria-label="Limpar busca">
+                            <i class="fa-solid fa-circle-xmark"></i>
+                        </button>
+                    </div>
+
+                    <button onclick="openNewItemModal('')" class="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition active:scale-95">
+                        <i class="fa-solid fa-plus text-amber-400"></i>
+                        <span>Item Extra</span>
+                    </button>
+                </div>
+
+                <!-- Abas de Filtro -->
+                <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
+                    <button onclick="setFilter('all')" data-filter="all" class="filter-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 text-white whitespace-nowrap transition">
+                        Todos (<span id="tabCountAll">0</span>)
+                    </button>
+                    <button onclick="setFilter('pending')" data-filter="pending" class="filter-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-600 border border-slate-200 hover:bg-slate-100 whitespace-nowrap transition">
+                        Pendentes (<span id="tabCountPending">0</span>)
+                    </button>
+                    <button onclick="setFilter('divergent')" data-filter="divergent" class="filter-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-rose-700 border border-rose-200 hover:bg-rose-50 whitespace-nowrap transition">
+                        Com Divergência (<span id="tabCountDivergent">0</span>)
+                    </button>
+                    <button onclick="setFilter('ok')" data-filter="ok" class="filter-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50 whitespace-nowrap transition">
+                        Conferidos OK (<span id="tabCountOk">0</span>)
+                    </button>
+                    <button onclick="setFilter('recent')" data-filter="recent" class="filter-tab px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-blue-700 border border-blue-200 hover:bg-blue-50 whitespace-nowrap transition">
+                        <i class="fa-solid fa-clock-rotate-left mr-1"></i> Últimos Bipados
+                    </button>
+                </div>
+            </div>
+
+            <!-- Lista de Peças -->
+            <div id="inventoryListContainer" class="flex-1 overflow-y-auto divide-y divide-slate-100 p-2"></div>
+
+            <div class="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                <span id="listShowingText">Exibindo 0 itens</span>
+                <div class="flex items-center gap-3">
+                    <span class="flex items-center gap-1"><i class="fa-solid fa-floppy-disk text-emerald-600"></i> <span id="saveStatusText">Salvo automaticamente no aparelho</span></span>
+                    <button onclick="confirmClearAllData()" class="text-rose-600 hover:underline font-semibold">Zerar Contagens</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- MODAL 1: UPLOAD DE PLANILHA & MAPEAMENTO DE COLUNAS -->
+    <div id="uploadModal" class="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm hidden items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col">
+            <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <i class="fa-solid fa-table text-amber-400 text-xl"></i>
+                    <h3 class="font-bold text-lg">Carregar Planilha de Estoque (ERP / Movere)</h3>
+                </div>
+                <button onclick="closeUploadModal()" class="text-slate-400 hover:text-white text-xl" aria-label="Fechar">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-y-auto space-y-5 flex-1">
+                <!-- Passo 1 -->
+                <div id="uploadStep1" class="space-y-4">
+                    <div id="dropZone" onclick="document.getElementById('fileInput').click()" class="border-2 border-dashed border-blue-400 bg-blue-50/50 hover:bg-blue-50 transition rounded-2xl p-8 text-center cursor-pointer">
+                        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" class="hidden" onchange="handleFileSelect(event)">
+                        <div class="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center text-2xl mx-auto mb-3 shadow-md">
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                        </div>
+                        <p class="font-bold text-slate-800 text-base">Toque aqui para selecionar sua planilha</p>
+                        <p class="text-xs text-slate-500 mt-1">Formatos aceitos: <strong>Excel (.xlsx, .xls)</strong> ou <strong>.CSV</strong> exportados do seu sistema</p>
+                    </div>
+
+                    <div class="relative flex py-1 items-center">
+                        <div class="flex-grow border-t border-slate-200"></div>
+                        <span class="flex-shrink mx-4 text-xs font-bold uppercase text-slate-400">Ou teste agora mesmo</span>
+                        <div class="flex-grow border-t border-slate-200"></div>
+                    </div>
+
+                    <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div class="flex items-start gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold text-lg shrink-0 mt-0.5">
+                                <i class="fa-solid fa-gears"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-slate-900 text-sm">Lote de Exemplo: Peças & Motores</h4>
+                                <p class="text-xs text-slate-600 mt-0.5">Carrega 10 itens automotivos de exemplo (pistão, bronzina, junta, filtro, correia...) para testar o leitor.</p>
+                                <a href="etiquetas-teste.html" target="_blank" class="inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:underline mt-1"><i class="fa-solid fa-print"></i> Etiquetas de teste para a câmera</a>
+                            </div>
+                        </div>
+                        <button onclick="loadSampleAutomotiveData()" class="w-full sm:w-auto px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold text-xs rounded-xl whitespace-nowrap shadow transition">
+                            Carregar Exemplo
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Passo 2 -->
+                <div id="uploadStep2" class="hidden space-y-4">
+                    <div class="bg-blue-50 border border-blue-200 rounded-xl p-3.5 flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <i class="fa-solid fa-table-columns text-blue-600 text-lg"></i>
+                            <div class="min-w-0">
+                                <p id="uploadedFileName" class="font-bold text-sm text-slate-800 truncate">estoque.xlsx</p>
+                                <p id="uploadedRowCount" class="text-xs text-slate-600">0 linhas encontradas na planilha</p>
+                            </div>
+                        </div>
+                        <button onclick="resetUploadModal()" class="text-xs font-semibold text-blue-700 hover:underline shrink-0">Trocar Arquivo</button>
+                    </div>
+
+                    <p class="text-xs text-slate-600">
+                        Confirme qual coluna da sua planilha corresponde a cada informação (as mais prováveis já vêm marcadas):
+                    </p>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1"><i class="fa-solid fa-barcode text-blue-600 mr-1"></i> Coluna de Código de Barras / EAN *</label>
+                            <select id="mapColBarcode" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium"></select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1"><i class="fa-solid fa-hashtag text-slate-600 mr-1"></i> Código Interno / Referência / SKU</label>
+                            <select id="mapColSku" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium"></select>
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="block text-xs font-bold text-slate-700 mb-1"><i class="fa-solid fa-tag text-slate-600 mr-1"></i> Descrição do Produto / Peça *</label>
+                            <select id="mapColDesc" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium"></select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1"><i class="fa-solid fa-cubes text-emerald-600 mr-1"></i> Saldo em Estoque (Sistema)</label>
+                            <select id="mapColExpected" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium"></select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1"><i class="fa-solid fa-location-dot text-amber-600 mr-1"></i> Localização / Prateleira</label>
+                            <select id="mapColLocation" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium"></select>
+                        </div>
+                    </div>
+
+                    <div class="pt-2">
+                        <label class="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
+                            <input type="checkbox" id="chkMergeDuplicates" checked class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4">
+                            <span>Somar saldo automaticamente caso o mesmo produto apareça duplicado na planilha</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3">
+                <button onclick="closeUploadModal()" class="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200 transition">Cancelar</button>
+                <button id="btnConfirmImport" onclick="confirmSpreadsheetImport()" class="hidden px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md transition">
+                    <i class="fa-solid fa-check mr-1"></i> Importar e Iniciar Balanço
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: TECLADO NUMÉRICO -->
+    <div id="qtyModal" class="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm hidden items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-2xl max-w-sm w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div class="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
+                <h3 id="qtyModalTitle" class="font-bold text-base">Informar Quantidade Contada</h3>
+                <button onclick="closeSetQtyModal()" class="text-slate-400 hover:text-white" aria-label="Fechar">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <p id="qtyModalItemName" class="text-xs font-bold text-slate-500 uppercase truncate">PEÇA SELECIONADA</p>
+                    <div class="flex gap-2 mt-2">
+                        <button onclick="setQtyModalMode('add')" id="btnQtyModeAdd" class="flex-1 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white">Somar à Contagem (+)</button>
+                        <button onclick="setQtyModalMode('replace')" id="btnQtyModeReplace" class="flex-1 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700">Substituir Total (=)</button>
+                    </div>
+                </div>
+
+                <input
+                    type="text"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
+                    id="numpadInput"
+                    onkeydown="if (event.key === 'Enter') { event.preventDefault(); confirmSetQtyModal(); }"
+                    class="w-full py-3 px-4 text-center font-mono font-black text-3xl bg-slate-50 border-2 border-blue-500 rounded-xl focus:outline-none"
+                    placeholder="0"
+                >
+
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="numpadPress('7')" class="py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl font-mono font-bold text-xl">7</button>
+                    <button onclick="numpadPress('8')" class="py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl font-mono font-bold text-xl">8</button>
+                    <button onclick="numpadPress('9')" class="py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl font-mono font-bold text-xl">9</button>
+                    <button onclick="numpadPress('4')" class="py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl font-mono font-bold text-xl">4</button>
+                    <button onclick="numpadPress('5')" class="py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl font-mono font-bold text-xl">5</button>
+                    <button onclick="numpadPress('6')" class="py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl font-mono font-bold text-xl">6</button>
+                    <button onclick="numpadPress('1')" class="py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl font-mono font-bold text-xl">1</button>
+                    <button onclick="numpadPress('2')" class="py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl font-mono font-bold text-xl">2</button>
+                    <button onclick="numpadPress('3')" class="py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl font-mono font-bold text-xl">3</button>
+                    <button onclick="numpadClear()" class="py-3.5 bg-rose-100 hover:bg-rose-200 text-rose-700 active:scale-95 rounded-xl font-bold text-sm">LIMPAR</button>
+                    <button onclick="numpadPress('0')" class="py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl font-mono font-bold text-xl">0</button>
+                    <button onclick="confirmSetQtyModal()" class="py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white active:scale-95 rounded-xl font-bold text-base">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 3: CÓDIGO NÃO ENCONTRADO / ITEM EXTRA -->
+    <div id="newItemModal" class="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm hidden items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] overflow-y-auto">
+            <div class="px-5 py-4 bg-rose-600 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2 min-w-0">
+                    <i class="fa-solid fa-circle-exclamation text-lg"></i>
+                    <h3 id="newItemModalTitle" class="font-bold text-base truncate">Código Não Encontrado na Planilha</h3>
+                </div>
+                <button onclick="closeNewItemModal()" class="text-white/80 hover:text-white" aria-label="Fechar">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <div class="p-5 space-y-3.5">
+                <p class="text-xs text-slate-600">
+                    Você pode cadastrar esta peça agora como <strong>Item Extra / Fora da Planilha</strong> para que ela saia no relatório final do balanço:
+                </p>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Código de Barras (EAN)</label>
+                    <input type="text" id="newItemBarcode" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono font-bold text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Código Interno / Referência (Opcional)</label>
+                    <input type="text" id="newItemSku" placeholder="Ex: REF-990" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Descrição da Peça *</label>
+                    <input type="text" id="newItemDesc" placeholder="Ex: Filtro de Combustível Sem Cadastro" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Prateleira / Local</label>
+                        <input type="text" id="newItemLocation" placeholder="Ex: BANCADA" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Qtd Encontrada *</label>
+                        <input type="number" inputmode="numeric" min="0" id="newItemCounted" value="1" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono font-bold text-sm">
+                    </div>
+                </div>
+            </div>
+            <div class="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
+                <button onclick="closeNewItemModal()" class="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-200">Ignorar</button>
+                <button onclick="saveNewExtraItem()" class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-amber-400 shadow">
+                    <i class="fa-solid fa-plus mr-1"></i> Adicionar ao Balanço
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 4: EXPORTAR RELATÓRIO -->
+    <div id="exportModal" class="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm hidden items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] overflow-y-auto">
+            <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <i class="fa-solid fa-file-export text-emerald-400 text-xl"></i>
+                    <h3 class="font-bold text-lg">Exportar Relatório do Balanço</h3>
+                </div>
+                <button onclick="closeExportModal()" class="text-slate-400 hover:text-white text-xl" aria-label="Fechar">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-3">
+                <p class="text-xs text-slate-600 mb-2">
+                    Escolha o formato para baixar a planilha final com as contagens, divergências (sobras/faltas) e observações:
+                </p>
+
+                <button onclick="exportToExcel('all')" class="w-full p-4 rounded-2xl border-2 border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100/70 transition flex items-center justify-between text-left group">
+                    <div class="flex items-center gap-3.5">
+                        <div class="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-xl shadow shrink-0"><i class="fa-solid fa-file-excel"></i></div>
+                        <div>
+                            <h4 class="font-bold text-slate-900 text-sm">Planilha Completa de Balanço (.xlsx)</h4>
+                            <p class="text-xs text-slate-600 mt-0.5">Todos os itens + Qtd Contada, Diferença, Status e Observações</p>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-download text-emerald-700 group-hover:translate-y-0.5 transition"></i>
+                </button>
+
+                <button onclick="exportToExcel('divergent')" class="w-full p-4 rounded-2xl border border-rose-200 bg-rose-50/40 hover:bg-rose-100/60 transition flex items-center justify-between text-left group">
+                    <div class="flex items-center gap-3.5">
+                        <div class="w-12 h-12 rounded-xl bg-rose-600 text-white flex items-center justify-center text-xl shadow shrink-0"><i class="fa-solid fa-scale-unbalanced"></i></div>
+                        <div>
+                            <h4 class="font-bold text-slate-900 text-sm">Apenas Itens com Divergência (.xlsx)</h4>
+                            <p class="text-xs text-slate-600 mt-0.5">Ideal para lançar acerto de estoque (faltas e sobras) no ERP</p>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-download text-rose-700 group-hover:translate-y-0.5 transition"></i>
+                </button>
+
+                <button onclick="exportToExcel('csv')" class="w-full p-4 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition flex items-center justify-between text-left group">
+                    <div class="flex items-center gap-3.5">
+                        <div class="w-12 h-12 rounded-xl bg-slate-700 text-white flex items-center justify-center text-xl shadow shrink-0"><i class="fa-solid fa-file-csv"></i></div>
+                        <div>
+                            <h4 class="font-bold text-slate-900 text-sm">Arquivo CSV Separado por Ponto-e-Vírgula (.csv)</h4>
+                            <p class="text-xs text-slate-600 mt-0.5">Para importação direta em sistemas ERP</p>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-download text-slate-700 group-hover:translate-y-0.5 transition"></i>
+                </button>
+
+                <button onclick="printAuditReport()" class="w-full p-3.5 rounded-2xl border border-slate-200 hover:bg-slate-100 transition flex items-center justify-center gap-2 text-xs font-bold text-slate-700">
+                    <i class="fa-solid fa-print"></i>
+                    <span>Imprimir / Salvar PDF de Conferência</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DE CONFIRMAÇÃO -->
+    <div id="confirmModal" class="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm hidden items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center">
+            <div class="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-xl mx-auto mb-3">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <h4 id="confirmModalTitle" class="font-bold text-base text-slate-900">Confirmar Ação</h4>
+            <p id="confirmModalDesc" class="text-xs text-slate-600 mt-1 mb-5">Deseja prosseguir?</p>
+            <div class="flex gap-2 justify-center">
+                <button onclick="closeConfirmModal()" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200">Cancelar</button>
+                <button id="confirmModalBtnYes" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ÁREA EXCLUSIVA PARA IMPRESSÃO / PDF -->
+    <div id="printReportArea" class="print-only p-8">
+        <div class="border-b-2 border-slate-900 pb-4 mb-6 flex justify-between items-end">
+            <div>
+                <h1 class="text-2xl font-black uppercase">Relatório de Balanço Físico de Estoque</h1>
+                <p id="printSubtitle" class="text-sm text-slate-600">AutoParts Audit - Conferência via Código de Barras</p>
+            </div>
+            <div class="text-right text-xs text-slate-600">
+                <p>Data da Emissão: <strong id="printDate">--/--/----</strong></p>
+            </div>
+        </div>
+        <table class="w-full text-left border-collapse text-xs">
+            <thead>
+                <tr class="border-b-2 border-slate-800 bg-slate-100">
+                    <th class="p-2">Cód. Barras</th>
+                    <th class="p-2">Ref / SKU</th>
+                    <th class="p-2">Descrição da Peça</th>
+                    <th class="p-2">Local</th>
+                    <th class="p-2 text-right">Saldo Sist.</th>
+                    <th class="p-2 text-right">Contado</th>
+                    <th class="p-2 text-right">Diferença</th>
+                    <th class="p-2">Status / Obs</th>
+                </tr>
+            </thead>
+            <tbody id="printTableBody" class="divide-y divide-slate-200"></tbody>
+        </table>
+    </div>
+
+    <script>
+        // =========================================================================
+        // ESTADO GLOBAL
+        // =========================================================================
+        const STORAGE_KEY = 'autoparts_audit_v1_state';
+        const IS_TOUCH = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+        const LIST_RENDER_LIMIT = 300;      // evita travar o tablet com planilhas enormes
+        const CAM_REARM_MS = 1200;          // tempo sem ver o código para contar a mesma peça de novo
+        const CAM_SWITCH_MS = 600;          // intervalo mínimo entre dois códigos diferentes
+
+        let state = {
+            sessionName: 'Lote Padrão (Peças & Motores)',
+            blindMode: false,
+            soundEnabled: true,
+            // No celular/tablet sem leitor pistola, manter o foco abre o teclado o tempo todo.
+            autoFocusLock: !IS_TOUCH,
+            scanMode: 'auto',
+            currentFilter: 'all',
+            activeItemId: null,
+            items: []
+        };
+
+        let rawSheetData = [];
+        let sheetHeaders = [];
+        let qtyModalMode = 'add';
+        let html5QrCode = null;
+        let isCameraRunning = false;
+        let isCameraStarting = false;
+        let torchOn = false;
+        let camLast = { code: null, seenAt: 0, countedAt: 0 };
+        let deferredInstallPrompt = null;
+
+        // =========================================================================
+        // UTILITÁRIOS
+        // =========================================================================
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        }
+
+        function nowTime() {
+            return new Date().toLocaleTimeString('pt-BR');
+        }
+
+        function markScanned(item) {
+            item.touched = true;
+            item.lastScannedAt = nowTime();
+            item.lastScannedTs = Date.now();
+        }
+
+        // Converte "12", "12,5", "1.234,00", "1,234.00" ou número do Excel
+        function parseQty(value) {
+            if (typeof value === 'number') return isFinite(value) ? value : 0;
+            let s = String(value ?? '').trim().replace(/\s/g, '');
+            if (!s) return 0;
+            const lastComma = s.lastIndexOf(',');
+            const lastDot = s.lastIndexOf('.');
+            if (lastComma > -1 && lastDot > -1) {
+                s = lastComma > lastDot ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+            } else if (lastComma > -1) {
+                s = s.replace(',', '.');
+            } else if (lastDot > -1 && /^\d{1,3}(\.\d{3})+$/.test(s)) {
+                s = s.replace(/\./g, ''); // "1.234" = mil duzentos e trinta e quatro
+            }
+            const n = parseFloat(s);
+            return isNaN(n) ? 0 : n;
+        }
+
+        // =========================================================================
+        // SINTETIZADOR DE ÁUDIO
+        // =========================================================================
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (Ctx) audioCtx = new Ctx();
+            }
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function vibrate(pattern) {
+            try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) { /* sem vibração */ }
+        }
+
+        function playBeep(type = 'success') {
+            vibrate(type === 'error' ? [80, 60, 80] : 40);
+            if (!state.soundEnabled) return;
+            try {
+                initAudio();
+                if (!audioCtx) return;
+                const now = audioCtx.currentTime;
+
+                if (type === 'success') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(2150, now);
+                    gain.gain.setValueAtTime(0.18, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.09);
+                } else if (type === 'exact') {
+                    [2000, 2650].forEach((freq, idx) => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(freq, now + idx * 0.1);
+                        gain.gain.setValueAtTime(0.2, now + idx * 0.1);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.1 + 0.09);
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.start(now + idx * 0.1);
+                        osc.stop(now + idx * 0.1 + 0.09);
+                    });
+                } else if (type === 'error') {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(240, now);
+                    osc.frequency.setValueAtTime(180, now + 0.15);
+                    gain.gain.setValueAtTime(0.25, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.35);
+                }
+            } catch (e) {
+                console.warn('Áudio não disponível:', e);
+            }
+        }
+
+        // =========================================================================
+        // DADOS DE EXEMPLO
+        // =========================================================================
+        function getAutomotiveSampleItems() {
+            const base = [
+                ['7891234560018', 'PST-4092-STD', 'JOGO DE PISTÃO C/ ANÉIS MOTOR AP 1.6/1.8 STD METAL LEVE', 'CORREDOR A1 - PRAT 02', 4, 4, '10:14:22', ''],
+                ['7891234560025', 'BRZ-1104-025', 'BRONZINA DE BIELA 0,25MM MOTOR FIRE 1.0/1.4 8V', 'CORREDOR A1 - PRAT 04', 10, 8, '10:18:05', 'Faltam 2 caixas na gaveta'],
+                ['7891234560032', 'JNT-8821-MLS', 'JUNTA DO CABEÇOTE AÇO (MLS) AMAROK 2.0 16V TDI', 'CORREDOR B2 - PRAT 01', 6, 0, null, ''],
+                ['7891234560049', 'FLT-PSL55', 'FILTRO DE ÓLEO LUBRIFICANTE TECFIL PSL55 LINHA FIAT/GM', 'CORREDOR C1 - GAV 12', 24, 25, '10:21:40', '1 unidade sobrando sem caixa'],
+                ['7891234560056', 'BMB-UB0630', 'BOMBA D’ÁGUA COMPLETA URBA CORSA / CELTA / PRISMA 1.0/1.4', 'CORREDOR B1 - PRAT 03', 8, 0, null, ''],
+                ['7891234560063', 'CRD-CT874K1', 'KIT CORREIA DENTADA + TENSOR CONTITECH GOL / FOX 1.0/1.6 EA111', 'CORREDOR C2 - PRAT 05', 12, 12, '10:25:10', ''],
+                ['7891234560070', 'RET-02911BRGP', 'RETENTOR TRASEIRO DO VIRABREQUIM SABÓ RANGER / S10 2.8 MWM', 'CORREDOR A2 - GAV 08', 15, 0, null, ''],
+                ['7891234560087', 'EMB-620308400', 'KIT EMBREAGEM LUK (PLATÔ + DISCO + ROLAMENTO) HB20 1.6 16V', 'CORREDOR D1 - PALLET 02', 5, 0, null, ''],
+                ['7891234560094', 'VEL-BKR6E', 'JOGO DE VELAS DE IGNIÇÃO NGK GREEN BKR6E (4 UNIDADES)', 'BALCÃO - VITRINE 01', 18, 16, '10:29:51', ''],
+                ['7891234560100', 'CAB-40112', 'CABEÇOTE COMPLETO NOVO MOTOR ZETEC ROCAM 1.6 8V FLEX', 'SETOR MOTORES - ESTANTE M1', 2, 2, '10:33:12', '']
+            ];
+            return base.map(([barcode, sku, description, location, expected, counted, time, notes], i) => ({
+                id: `item-${i + 1}`,
+                barcode, sku, description, location, expected, counted,
+                touched: Boolean(time),
+                lastScannedAt: time,
+                lastScannedTs: time ? i : 0,
+                notes
+            }));
+        }
+
+        // =========================================================================
+        // INICIALIZAÇÃO E PERSISTÊNCIA
+        // =========================================================================
+        window.addEventListener('load', function () {
+            loadStateFromStorage();
+
+            if (!state.items || state.items.length === 0) {
+                state.items = getAutomotiveSampleItems();
+                state.activeItemId = state.items[0].id;
+                saveStateToStorage();
+            }
+
+            // No celular, o teclado numérico na tela já basta
+            if (IS_TOUCH) document.getElementById('numpadInput').setAttribute('inputmode', 'none');
+
+            syncUIControls();
+            setFilter(state.currentFilter || 'all');
+            renderAll();
+            focusScannerInput();
+
+            document.addEventListener('click', (e) => {
+                if (!state.autoFocusLock) return;
+                const tag = e.target.tagName.toLowerCase();
+                const isInteractive = ['input', 'textarea', 'select', 'button', 'label'].includes(tag) || e.target.closest('button') || e.target.closest('label');
+                if (!isInteractive && !isAnyModalOpen()) focusScannerInput();
+            });
+
+            // Libera a câmera quando o app vai para segundo plano
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden && isCameraRunning) stopCameraScanner();
+            });
+
+            // Pede ao navegador para não apagar os dados salvos
+            if (navigator.storage && navigator.storage.persist) {
+                navigator.storage.persist().catch(() => {});
+            }
+
+            updateOnlineBadge();
+            window.addEventListener('online', updateOnlineBadge);
+            window.addEventListener('offline', updateOnlineBadge);
+
+            registerServiceWorker();
+        });
+
+        function saveStateToStorage() {
+            const statusEl = document.getElementById('saveStatusText');
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+                if (statusEl) statusEl.textContent = 'Salvo automaticamente no aparelho';
+            } catch (e) {
+                console.warn('Não foi possível salvar no localStorage:', e);
+                if (statusEl) statusEl.textContent = 'ATENÇÃO: não foi possível salvar! Exporte o balanço.';
+                showScanFeedback('error', 'Não foi possível salvar no aparelho (memória cheia?). Exporte o balanço para não perder a contagem.');
+            }
+        }
+
+        function loadStateFromStorage() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    state = { ...state, ...parsed };
+                }
+            } catch (e) {
+                console.warn('Erro ao ler estado salvo:', e);
+            }
+        }
+
+        function isAnyModalOpen() {
+            const modals = ['uploadModal', 'qtyModal', 'newItemModal', 'exportModal', 'confirmModal'];
+            return modals.some(id => !document.getElementById(id).classList.contains('hidden'));
+        }
+
+        function focusScannerInput() {
+            // Com a câmera ligada não faz sentido focar o campo: só abriria o teclado por cima do vídeo
+            if (!state.autoFocusLock || isAnyModalOpen() || isCameraRunning || isCameraStarting) return;
+            const input = document.getElementById('barcodeInput');
+            if (input && document.activeElement !== input) input.focus({ preventScroll: true });
+        }
+
+        function updateOnlineBadge() {
+            document.getElementById('badgeOffline').classList.toggle('hidden', navigator.onLine);
+        }
+
+        // =========================================================================
+        // PROCESSAMENTO DO CÓDIGO LIDO (PISTOLA USB/BT, DIGITADO OU CÂMERA)
+        // =========================================================================
+        function handleBarcodeSubmit(event) {
+            if (event) event.preventDefault();
+            const input = document.getElementById('barcodeInput');
+            const code = (input.value || '').trim();
+            if (!code) return;
+
+            processScannedCode(code);
+            input.value = '';
+            setTimeout(() => focusScannerInput(), 50);
+        }
+
+        function clearBarcodeInput() {
+            const input = document.getElementById('barcodeInput');
+            input.value = '';
+            input.focus();
+        }
+
+        function findItemByCode(cleanCode) {
+            const strippedScan = cleanCode.replace(/^0+/, '');
+            return state.items.find(item => {
+                const itemBar = String(item.barcode || '').trim().toUpperCase();
+                const itemSku = String(item.sku || '').trim().toUpperCase();
+                const strippedBar = itemBar.replace(/^0+/, '');
+                return itemBar === cleanCode || itemSku === cleanCode || (strippedScan && strippedBar && strippedScan === strippedBar);
+            });
+        }
+
+        function processScannedCode(rawCode) {
+            const cleanCode = String(rawCode).trim().toUpperCase();
+            if (!cleanCode) return;
+
+            const foundItem = findItemByCode(cleanCode);
+
+            if (foundItem) {
+                state.activeItemId = foundItem.id;
+
+                if (state.scanMode === 'auto') {
+                    foundItem.counted = (Number(foundItem.counted) || 0) + 1;
+                    markScanned(foundItem);
+
+                    if (!state.blindMode && foundItem.expected > 0 && foundItem.counted === foundItem.expected) {
+                        playBeep('exact');
+                        showScanFeedback('success', `ESTOQUE BATIDO! ${foundItem.description} (${foundItem.counted}/${foundItem.expected})`);
+                    } else {
+                        playBeep('success');
+                        showScanFeedback('success', `+1 BIPADO: ${foundItem.description} (Total: ${foundItem.counted})`);
+                    }
+                    triggerCardAnimation('success');
+                    saveStateToStorage();
+                    renderAll();
+                } else {
+                    playBeep('success');
+                    saveStateToStorage();
+                    renderAll();
+                    openSetQtyModal('add');
+                }
+            } else {
+                playBeep('error');
+                triggerCardAnimation('error');
+                showScanFeedback('error', `CÓDIGO NÃO CADASTRADO: ${cleanCode}`);
+                openNewItemModal(cleanCode);
+            }
+        }
+
+        function simulateRandomScan() {
+            if (!state.items || state.items.length === 0) return;
+            const sample = state.items[Math.floor(Math.random() * state.items.length)];
+            processScannedCode(sample.barcode || sample.sku);
+        }
+
+        function showScanFeedback(type, message) {
+            const banner = document.getElementById('scanFeedbackBanner');
+            const icon = document.getElementById('scanFeedbackIcon');
+            const text = document.getElementById('scanFeedbackText');
+            const time = document.getElementById('scanFeedbackTime');
+
+            banner.classList.remove('hidden', 'bg-emerald-100', 'text-emerald-900', 'border-emerald-300', 'bg-rose-100', 'text-rose-900', 'border-rose-300');
+            banner.classList.add('border');
+
+            if (type === 'success') {
+                banner.classList.add('bg-emerald-100', 'text-emerald-900', 'border-emerald-300');
+                icon.className = 'fa-solid fa-circle-check text-emerald-600 text-base';
+            } else {
+                banner.classList.add('bg-rose-100', 'text-rose-900', 'border-rose-300');
+                icon.className = 'fa-solid fa-triangle-exclamation text-rose-600 text-base';
+            }
+
+            text.textContent = message;
+            time.textContent = nowTime();
+        }
+
+        function triggerCardAnimation(type) {
+            const card = document.getElementById('activeItemCard');
+            card.classList.remove('scan-success-anim', 'scan-error-anim');
+            void card.offsetWidth;
+            card.classList.add(type === 'success' ? 'scan-success-anim' : 'scan-error-anim');
+        }
+
+        // =========================================================================
+        // LEITOR PELA CÂMERA (HTML5-QRCODE + LEITOR NATIVO DO ANDROID QUANDO EXISTIR)
+        // =========================================================================
+        function toggleCameraScanner() {
+            if (isCameraRunning || isCameraStarting) stopCameraScanner();
+            else startCameraScanner();
+        }
+
+        function getScannerFormats() {
+            const F = window.Html5QrcodeSupportedFormats;
+            if (!F) return undefined;
+            return [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR, F.QR_CODE, F.DATA_MATRIX]
+                .filter(f => f !== undefined);
+        }
+
+        function startCameraScanner() {
+            if (!window.isSecureContext) {
+                showScanFeedback('error', 'A câmera só funciona com o app aberto em endereço https:// (ou instalado).');
+                return;
+            }
+            if (typeof Html5Qrcode === 'undefined') {
+                showScanFeedback('error', 'O leitor da câmera não carregou. Recarregue a página.');
+                return;
+            }
+
+            const container = document.getElementById('cameraScannerContainer');
+            container.classList.remove('hidden');
+            if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); // fecha o teclado
+
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode('qr-reader', {
+                    formatsToSupport: getScannerFormats(),
+                    // Usa o leitor nativo do Chrome/Android (bem mais rápido para código de barras)
+                    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+                    verbose: false
+                });
+            }
+
+            const config = {
+                fps: 15,
+                // Janela de leitura larga e baixa (código de barras), ajustada ao tamanho da tela
+                qrbox: (w, h) => {
+                    const width = Math.max(120, Math.floor(Math.min(w * 0.9, 420)));
+                    const height = Math.max(80, Math.floor(Math.min(h * 0.55, width * 0.6)));
+                    return { width, height };
+                },
+                aspectRatio: 1.333
+            };
+
+            camLast = { code: null, seenAt: 0, countedAt: 0 };
+            isCameraStarting = true;
+            html5QrCode.start({ facingMode: 'environment' }, config, handleCameraDecode, () => {})
+                .then(() => {
+                    isCameraStarting = false;
+                    isCameraRunning = true;
+                    setupTorchButton();
+                })
+                .catch(err => {
+                    isCameraStarting = false;
+                    isCameraRunning = false;
+                    console.warn(err);
+                    const msg = String(err && (err.name || err.message || err));
+                    showScanFeedback('error', /NotAllowed|Permission/i.test(msg)
+                        ? 'Permissão da câmera negada. Libere a câmera nas configurações do navegador/app.'
+                        : 'Não foi possível acessar a câmera. Verifique se outro app está usando.');
+                    container.classList.add('hidden');
+                });
+        }
+
+        // Cada código só conta 1 vez enquanto continuar na frente da câmera.
+        function handleCameraDecode(decodedText) {
+            const code = String(decodedText || '').trim();
+            if (!code) return;
+            const now = Date.now();
+
+            if (code === camLast.code) {
+                const awayFor = now - camLast.seenAt;
+                camLast.seenAt = now;
+                if (awayFor < CAM_REARM_MS) return; // ainda é a mesma peça parada na frente da câmera
+            } else if (now - camLast.countedAt < CAM_SWITCH_MS) {
+                return;
+            }
+
+            if (isAnyModalOpen()) return; // espera fechar o teclado numérico / cadastro
+
+            camLast = { code, seenAt: now, countedAt: now };
+            processScannedCode(code);
+        }
+
+        function setupTorchButton() {
+            const btn = document.getElementById('btnTorch');
+            torchOn = false;
+            try {
+                const caps = html5QrCode.getRunningTrackCapabilities ? html5QrCode.getRunningTrackCapabilities() : {};
+                btn.classList.toggle('hidden', !caps || !caps.torch);
+            } catch (e) {
+                btn.classList.add('hidden');
+            }
+        }
+
+        function toggleTorch() {
+            if (!html5QrCode || !isCameraRunning) return;
+            torchOn = !torchOn;
+            html5QrCode.applyVideoConstraints({ advanced: [{ torch: torchOn }] }).catch(() => {
+                torchOn = false;
+                showScanFeedback('error', 'Este aparelho não permite ligar a lanterna pelo navegador.');
+            });
+        }
+
+        function stopCameraScanner() {
+            const container = document.getElementById('cameraScannerContainer');
+            const done = () => {
+                isCameraRunning = false;
+                isCameraStarting = false;
+                container.classList.add('hidden');
+                document.getElementById('btnTorch').classList.add('hidden');
+                focusScannerInput();
+            };
+            if (html5QrCode && (isCameraRunning || isCameraStarting)) {
+                html5QrCode.stop().then(done).catch(done);
+            } else {
+                done();
+            }
+        }
+
+        // =========================================================================
+        // CONTROLES DO ITEM ATIVO
+        // =========================================================================
+        function getActiveItem() {
+            if (!state.activeItemId) return null;
+            return state.items.find(i => i.id === state.activeItemId) || null;
+        }
+
+        function selectItemFromList(itemId) {
+            state.activeItemId = itemId;
+            saveStateToStorage();
+            renderActiveItemHero();
+            renderInventoryList();
+            focusScannerInput();
+            if (window.innerWidth < 1024) {
+                document.getElementById('activeItemCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        function adjustActiveItem(delta) {
+            const item = getActiveItem();
+            if (!item) return;
+
+            item.counted = Math.max(0, (Number(item.counted) || 0) + delta);
+            markScanned(item);
+
+            playBeep((!state.blindMode && item.expected > 0 && item.counted === item.expected) ? 'exact' : 'success');
+            triggerCardAnimation('success');
+            saveStateToStorage();
+            renderAll();
+            focusScannerInput();
+        }
+
+        function resetActiveItemCount() {
+            const item = getActiveItem();
+            if (!item) return;
+            item.counted = 0;
+            item.touched = false;
+            item.lastScannedAt = null;
+            item.lastScannedTs = 0;
+            saveStateToStorage();
+            renderAll();
+            focusScannerInput();
+        }
+
+        function saveActiveItemNote(val) {
+            const item = getActiveItem();
+            if (!item) return;
+            item.notes = val.trim();
+            saveStateToStorage();
+            renderInventoryList();
+        }
+
+        function quickNote(tagText) {
+            const item = getActiveItem();
+            if (!item) return;
+            const input = document.getElementById('activeItemNotes');
+            const current = (item.notes || '').trim();
+            item.notes = current ? `${current} | ${tagText}` : tagText;
+            input.value = item.notes;
+            saveStateToStorage();
+            renderInventoryList();
+            focusScannerInput();
+        }
+
+        // =========================================================================
+        // TECLADO NUMÉRICO
+        // =========================================================================
+        function openSetQtyModal(defaultMode = 'replace') {
+            const item = getActiveItem();
+            if (!item) return;
+
+            document.getElementById('qtyModalItemName').textContent = `${item.sku ? item.sku + ' - ' : ''}${item.description}`;
+            setQtyModalMode(defaultMode);
+
+            const numpadInput = document.getElementById('numpadInput');
+            numpadInput.value = '';
+            document.getElementById('qtyModal').classList.remove('hidden');
+            document.getElementById('qtyModal').classList.add('flex');
+            setTimeout(() => numpadInput.focus(), 50);
+        }
+
+        function closeSetQtyModal() {
+            document.getElementById('qtyModal').classList.add('hidden');
+            document.getElementById('qtyModal').classList.remove('flex');
+            focusScannerInput();
+        }
+
+        function setQtyModalMode(mode) {
+            qtyModalMode = mode;
+            const btnAdd = document.getElementById('btnQtyModeAdd');
+            const btnReplace = document.getElementById('btnQtyModeReplace');
+            const on = 'flex-1 py-2 rounded-lg text-xs font-bold bg-blue-600 text-white shadow';
+            const off = 'flex-1 py-2 rounded-lg text-xs font-bold bg-slate-100 text-slate-700';
+            btnAdd.className = mode === 'add' ? on : off;
+            btnReplace.className = mode === 'add' ? off : on;
+        }
+
+        function numpadPress(digit) {
+            const input = document.getElementById('numpadInput');
+            input.value = String(input.value || '') + String(digit);
+        }
+
+        function numpadClear() {
+            document.getElementById('numpadInput').value = '';
+        }
+
+        function confirmSetQtyModal() {
+            const item = getActiveItem();
+            if (!item) return closeSetQtyModal();
+
+            const rawVal = document.getElementById('numpadInput').value;
+            const val = parseQty(rawVal);
+            if (String(rawVal).trim() !== '' && val >= 0) {
+                item.counted = qtyModalMode === 'add' ? (Number(item.counted) || 0) + val : val;
+                markScanned(item);
+                playBeep((!state.blindMode && item.expected > 0 && item.counted === item.expected) ? 'exact' : 'success');
+                triggerCardAnimation('success');
+                saveStateToStorage();
+                renderAll();
+            }
+            closeSetQtyModal();
+        }
+
+        // =========================================================================
+        // RENDERIZAÇÃO
+        // =========================================================================
+        function renderAll() {
+            renderKPIs();
+            renderActiveItemHero();
+            renderInventoryList();
+        }
+
+        function getItemStatus(item) {
+            if (!item.touched && (Number(item.counted) || 0) === 0) return 'pending';
+            const diff = (Number(item.counted) || 0) - (Number(item.expected) || 0);
+            if (diff === 0) return 'ok';
+            return diff > 0 ? 'surplus' : 'shortage';
+        }
+
+        function renderKPIs() {
+            const total = state.items.length;
+            let countedSkus = 0, pendingSkus = 0, exactSkus = 0, divergentSkus = 0, totalUnitsCounted = 0;
+
+            state.items.forEach(item => {
+                totalUnitsCounted += (Number(item.counted) || 0);
+                const status = getItemStatus(item);
+                if (status === 'pending') {
+                    pendingSkus++;
+                } else {
+                    countedSkus++;
+                    if (status === 'ok') exactSkus++;
+                    else divergentSkus++;
+                }
+            });
+
+            const pct = total > 0 ? Math.round((countedSkus / total) * 100) : 0;
+
+            document.getElementById('badgeSessionStatus').textContent = state.sessionName || 'Planilha Ativa';
+            document.getElementById('kpiPercent').textContent = `${pct}%`;
+            document.getElementById('kpiProgressBar').style.width = `${pct}%`;
+            document.getElementById('kpiTotalSkus').textContent = total;
+            document.getElementById('kpiTotalUnitsCounted').textContent = totalUnitsCounted;
+            document.getElementById('kpiCounted').textContent = countedSkus;
+            document.getElementById('kpiPending').textContent = pendingSkus;
+
+            const hide = state.blindMode;
+            document.getElementById('kpiExact').textContent = hide ? '•••' : exactSkus;
+            document.getElementById('kpiDivergent').textContent = hide ? '•••' : divergentSkus;
+            document.getElementById('tabCountDivergent').textContent = hide ? '•••' : divergentSkus;
+            document.getElementById('tabCountOk').textContent = hide ? '•••' : exactSkus;
+
+            document.getElementById('tabCountAll').textContent = total;
+            document.getElementById('tabCountPending').textContent = pendingSkus;
+        }
+
+        function renderActiveItemHero() {
+            const item = getActiveItem();
+            const emptyState = document.getElementById('emptyActiveState');
+            const filledState = document.getElementById('filledActiveState');
+
+            if (!item) {
+                emptyState.classList.remove('hidden');
+                filledState.classList.add('hidden');
+                filledState.classList.remove('flex');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            filledState.classList.remove('hidden');
+            filledState.classList.add('flex');
+
+            document.getElementById('activeItemLocation').textContent = item.location || 'SEM PRATELEIRA';
+            document.getElementById('activeItemLastTime').textContent = item.lastScannedAt ? `Último bipe às ${item.lastScannedAt}` : 'Ainda não bipado';
+            document.getElementById('activeItemDesc').textContent = item.description;
+            document.getElementById('activeItemBarcode').textContent = item.barcode || 'SEM EAN';
+            document.getElementById('activeItemSku').textContent = item.sku || 'S/ REF';
+            document.getElementById('activeItemCounted').textContent = item.counted;
+            const notesEl = document.getElementById('activeItemNotes');
+            if (document.activeElement !== notesEl) notesEl.value = item.notes || '';
+
+            const expectedEl = document.getElementById('activeItemExpected');
+            const diffEl = document.getElementById('activeItemDiff');
+            const diffBox = document.getElementById('activeItemDiffBox');
+            const statusBadge = document.getElementById('activeItemStatusBadge');
+            const boxBase = 'p-3 rounded-2xl border text-center flex flex-col justify-center';
+            const badgeBase = 'px-2.5 py-1 rounded-lg text-xs font-bold';
+
+            if (state.blindMode) {
+                expectedEl.textContent = 'OCULTO';
+                diffEl.textContent = '•••';
+                diffBox.className = `bg-slate-100 border-slate-200 ${boxBase}`;
+                statusBadge.className = `${badgeBase} bg-indigo-100 text-indigo-800`;
+                statusBadge.textContent = 'CONTAGEM CEGA';
+                return;
+            }
+
+            expectedEl.textContent = item.expected;
+            const diff = (Number(item.counted) || 0) - (Number(item.expected) || 0);
+            diffEl.textContent = diff > 0 ? `+${diff}` : `${diff}`;
+
+            const status = getItemStatus(item);
+            if (status === 'pending') {
+                diffBox.className = `bg-amber-50 border-amber-200 text-amber-800 ${boxBase}`;
+                statusBadge.className = `${badgeBase} bg-amber-100 text-amber-800`;
+                statusBadge.textContent = 'PENDENTE';
+            } else if (status === 'ok') {
+                diffBox.className = `bg-emerald-50 border-emerald-200 text-emerald-800 ${boxBase}`;
+                statusBadge.className = `${badgeBase} bg-emerald-100 text-emerald-800`;
+                statusBadge.textContent = 'ESTOQUE BATENDO (OK)';
+            } else if (status === 'surplus') {
+                diffBox.className = `bg-blue-50 border-blue-200 text-blue-800 ${boxBase}`;
+                statusBadge.className = `${badgeBase} bg-blue-100 text-blue-800`;
+                statusBadge.textContent = `SOBRA DE +${diff} UN`;
+            } else {
+                diffBox.className = `bg-rose-50 border-rose-200 text-rose-800 ${boxBase}`;
+                statusBadge.className = `${badgeBase} bg-rose-100 text-rose-800`;
+                statusBadge.textContent = `FALTA DE ${diff} UN`;
+            }
+        }
+
+        function renderInventoryList() {
+            const container = document.getElementById('inventoryListContainer');
+            const query = (document.getElementById('searchInput').value || '').trim().toUpperCase();
+            document.getElementById('btnClearSearch').classList.toggle('hidden', !query);
+
+            let filtered = state.items.filter(item => {
+                if (query) {
+                    const hay = `${item.description || ''} ${item.barcode || ''} ${item.sku || ''} ${item.location || ''}`.toUpperCase();
+                    if (!hay.includes(query)) return false;
+                }
+                const status = getItemStatus(item);
+                switch (state.currentFilter) {
+                    case 'pending': return status === 'pending';
+                    case 'counted': return status !== 'pending';
+                    case 'ok': return status === 'ok';
+                    case 'divergent': return status === 'surplus' || status === 'shortage';
+                    case 'recent': return Boolean(item.lastScannedAt);
+                    default: return true;
+                }
+            });
+
+            if (state.currentFilter === 'recent') {
+                filtered.sort((a, b) => (b.lastScannedTs || 0) - (a.lastScannedTs || 0));
+            }
+
+            const shown = filtered.slice(0, LIST_RENDER_LIMIT);
+            document.getElementById('listShowingText').textContent = filtered.length > shown.length
+                ? `Exibindo ${shown.length} de ${filtered.length} itens (use a busca para achar os demais)`
+                : `Exibindo ${filtered.length} de ${state.items.length} itens`;
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="py-16 text-center text-slate-400">
+                        <i class="fa-solid fa-magnifying-glass text-3xl mb-2"></i>
+                        <p class="font-semibold text-sm text-slate-600">Nenhuma peça encontrada neste filtro</p>
+                        <p class="text-xs mt-0.5">Tente limpar a busca ou selecionar a aba "Todos".</p>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = shown.map(item => {
+                const isSelected = item.id === state.activeItemId;
+                const status = getItemStatus(item);
+                const diff = (Number(item.counted) || 0) - (Number(item.expected) || 0);
+                const id = escapeHtml(item.id);
+
+                let badgeHtml = '';
+                if (state.blindMode) {
+                    badgeHtml = item.touched
+                        ? `<span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 text-blue-800">Conferido</span>`
+                        : `<span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-600">Pendente</span>`;
+                } else if (status === 'pending') {
+                    badgeHtml = `<span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800">Pendente</span>`;
+                } else if (status === 'ok') {
+                    badgeHtml = `<span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 text-emerald-800"><i class="fa-solid fa-check mr-1"></i>OK</span>`;
+                } else if (status === 'surplus') {
+                    badgeHtml = `<span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 text-blue-800">Sobra (+${diff})</span>`;
+                } else {
+                    badgeHtml = `<span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 text-rose-800">Falta (${diff})</span>`;
+                }
+
+                return `
+                    <div onclick="selectItemFromList('${id}')" class="p-3 rounded-xl cursor-pointer transition flex items-center justify-between gap-3 ${isSelected ? 'bg-blue-50/90 ring-2 ring-blue-500' : 'hover:bg-slate-50'}">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center gap-1.5 mb-1">
+                                ${badgeHtml}
+                                <span class="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">${escapeHtml(item.sku || 'S/ REF')}</span>
+                                <span class="text-[11px] font-mono text-slate-500"><i class="fa-solid fa-barcode mr-1"></i>${escapeHtml(item.barcode || '---')}</span>
+                                ${item.location ? `<span class="text-[11px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded"><i class="fa-solid fa-location-dot mr-1"></i>${escapeHtml(item.location)}</span>` : ''}
+                            </div>
+                            <h4 class="font-bold text-sm text-slate-900 truncate">${escapeHtml(item.description)}</h4>
+                            ${item.notes ? `<p class="text-[11px] text-rose-600 font-medium mt-0.5"><i class="fa-solid fa-comment-dots mr-1"></i>${escapeHtml(item.notes)}</p>` : ''}
+                        </div>
+                        <div class="flex items-center gap-3 shrink-0">
+                            <div class="text-right">
+                                <div class="text-[10px] font-bold uppercase text-slate-400">
+                                    Sist: <span class="text-slate-700 font-mono">${state.blindMode ? '•••' : escapeHtml(item.expected)}</span>
+                                </div>
+                                <div class="font-mono font-black text-lg text-slate-900 leading-tight">
+                                    ${escapeHtml(item.counted)} <span class="text-[10px] font-normal text-slate-400">un</span>
+                                </div>
+                            </div>
+                            <button onclick="event.stopPropagation(); quickIncrementItem('${id}')" class="w-11 h-11 rounded-xl bg-slate-900 hover:bg-blue-600 active:scale-90 text-white font-mono font-bold text-sm flex items-center justify-center shadow transition" title="Somar +1">+1</button>
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
+        function quickIncrementItem(itemId) {
+            state.activeItemId = itemId;
+            adjustActiveItem(1);
+        }
+
+        function setFilter(filterName) {
+            state.currentFilter = filterName;
+            document.querySelectorAll('.filter-tab').forEach(btn => {
+                if (btn.dataset.filter === filterName) {
+                    btn.classList.add('bg-slate-900', 'text-white');
+                    btn.classList.remove('bg-white', 'text-slate-600', 'text-rose-700', 'text-emerald-700', 'text-blue-700');
+                } else {
+                    btn.classList.remove('bg-slate-900', 'text-white');
+                    btn.classList.add('bg-white', 'text-slate-600');
+                }
+            });
+            renderInventoryList();
+            focusScannerInput();
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            renderInventoryList();
+            focusScannerInput();
+        }
+
+        // =========================================================================
+        // PREFERÊNCIAS
+        // =========================================================================
+        function toggleBlindMode() {
+            state.blindMode = !state.blindMode;
+            saveStateToStorage();
+            syncUIControls();
+            renderAll();
+            focusScannerInput();
+        }
+
+        function toggleSound() {
+            state.soundEnabled = !state.soundEnabled;
+            if (state.soundEnabled) playBeep('success');
+            saveStateToStorage();
+            syncUIControls();
+            focusScannerInput();
+        }
+
+        function toggleAutoFocus() {
+            state.autoFocusLock = !state.autoFocusLock;
+            saveStateToStorage();
+            syncUIControls();
+            if (state.autoFocusLock) focusScannerInput();
+        }
+
+        function setScanMode(mode) {
+            state.scanMode = mode;
+            saveStateToStorage();
+            syncUIControls();
+            focusScannerInput();
+        }
+
+        function syncUIControls() {
+            const txtBlind = document.getElementById('txtBlindMode');
+            const iconBlind = document.getElementById('iconBlindMode');
+            txtBlind.textContent = state.blindMode ? 'ON' : 'OFF';
+            txtBlind.className = state.blindMode ? 'text-amber-400' : 'text-white';
+            iconBlind.className = state.blindMode ? 'fa-solid fa-eye-slash text-amber-400' : 'fa-solid fa-eye text-emerald-400';
+
+            document.getElementById('iconSound').className = state.soundEnabled ? 'fa-solid fa-volume-high text-amber-400' : 'fa-solid fa-volume-xmark text-slate-500';
+
+            const btnFocus = document.getElementById('btnAutoFocus');
+            const dot1 = document.getElementById('focusStatusDot');
+            const dot2 = document.getElementById('focusStatusDotStatic');
+            if (state.autoFocusLock) {
+                btnFocus.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 transition';
+                btnFocus.innerHTML = '<i class="fa-solid fa-lock text-[10px]"></i><span>Foco Automático: ON</span>';
+                dot1.className = 'w-3 h-3 rounded-full bg-emerald-500 animate-ping';
+                dot2.className = 'w-3 h-3 rounded-full bg-emerald-500 -ml-5';
+            } else {
+                btnFocus.className = 'text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-300 flex items-center gap-1.5 transition';
+                btnFocus.innerHTML = '<i class="fa-solid fa-lock-open text-[10px]"></i><span>Foco Automático: OFF</span>';
+                dot1.className = 'w-3 h-3 rounded-full bg-slate-400';
+                dot2.className = 'w-3 h-3 rounded-full bg-slate-400 -ml-5';
+            }
+
+            const on = 'py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 bg-slate-900 text-white shadow transition';
+            const off = 'py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 text-slate-600 hover:text-slate-900 transition';
+            document.getElementById('btnModeAuto').className = state.scanMode === 'auto' ? on : off;
+            document.getElementById('btnModeManual').className = state.scanMode === 'auto' ? off : on;
+        }
+
+        // =========================================================================
+        // UPLOAD DE PLANILHA E MAPEAMENTO DE COLUNAS
+        // =========================================================================
+        function openUploadModal() {
+            resetUploadModal();
+            document.getElementById('uploadModal').classList.remove('hidden');
+            document.getElementById('uploadModal').classList.add('flex');
+        }
+
+        function closeUploadModal() {
+            document.getElementById('uploadModal').classList.add('hidden');
+            document.getElementById('uploadModal').classList.remove('flex');
+            focusScannerInput();
+        }
+
+        function resetUploadModal() {
+            document.getElementById('uploadStep1').classList.remove('hidden');
+            document.getElementById('uploadStep2').classList.add('hidden');
+            document.getElementById('btnConfirmImport').classList.add('hidden');
+            document.getElementById('fileInput').value = '';
+        }
+
+        function loadSampleAutomotiveData() {
+            state.sessionName = 'Lote Demo: Peças & Motores';
+            state.items = getAutomotiveSampleItems();
+            state.activeItemId = state.items[0].id;
+            saveStateToStorage();
+            renderAll();
+            closeUploadModal();
+            playBeep('exact');
+            showScanFeedback('success', 'Lote de exemplo carregado com sucesso!');
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (typeof XLSX === 'undefined') {
+                showScanFeedback('error', 'O leitor de planilhas não carregou. Recarregue a página.');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                try {
+                    const workbook = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+                    if (!json || json.length === 0) {
+                        showScanFeedback('error', 'A planilha selecionada parece estar vazia.');
+                        return;
+                    }
+
+                    rawSheetData = json;
+                    sheetHeaders = Object.keys(json[0]);
+                    state.pendingSessionName = file.name;
+
+                    document.getElementById('uploadedFileName').textContent = file.name;
+                    document.getElementById('uploadedRowCount').textContent = `${json.length} itens identificados na planilha`;
+
+                    populateColumnMapper(sheetHeaders);
+
+                    document.getElementById('uploadStep1').classList.add('hidden');
+                    document.getElementById('uploadStep2').classList.remove('hidden');
+                    document.getElementById('btnConfirmImport').classList.remove('hidden');
+                } catch (err) {
+                    console.error(err);
+                    showScanFeedback('error', 'Erro ao ler planilha. Confira se é um arquivo .xlsx, .xls ou .csv válido.');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function populateColumnMapper(headers) {
+            const selects = [
+                { id: 'mapColBarcode', required: true, keywords: ['barras', 'ean', 'gtin', 'cod_barras', 'codbarras', 'barcode'] },
+                { id: 'mapColSku', required: false, keywords: ['interno', 'referencia', 'ref', 'sku', 'codigo', 'cod_prod', 'cod', 'item'] },
+                { id: 'mapColDesc', required: true, keywords: ['descricao', 'produto', 'peca', 'nome', 'discriminacao', 'mercadoria'] },
+                { id: 'mapColExpected', required: false, keywords: ['saldo', 'estoque', 'qtd', 'quant', 'quantidade', 'sistema', 'fisico', 'disponivel'] },
+                { id: 'mapColLocation', required: false, keywords: ['local', 'prateleira', 'endereco', 'corredor', 'locacao', 'gaveta'] }
+            ];
+            const norm = h => String(h).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+            const used = new Set();
+
+            selects.forEach(cfg => {
+                const selectEl = document.getElementById(cfg.id);
+                let optionsHtml = cfg.required ? '' : '<option value="">-- Não possui / Ignorar --</option>';
+                headers.forEach(h => { optionsHtml += `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`; });
+                selectEl.innerHTML = optionsHtml;
+
+                // Procura por palavra-chave em ordem de prioridade, sem repetir coluna já escolhida
+                let bestMatch = '';
+                for (const kw of cfg.keywords) {
+                    bestMatch = headers.find(h => !used.has(h) && norm(h).includes(kw)) || '';
+                    if (bestMatch) break;
+                }
+                if (bestMatch) {
+                    used.add(bestMatch);
+                    selectEl.value = bestMatch;
+                } else if (cfg.required && headers.length > 0) {
+                    selectEl.value = headers[0];
+                }
+            });
+        }
+
+        function confirmSpreadsheetImport() {
+            const colBar = document.getElementById('mapColBarcode').value;
+            const colSku = document.getElementById('mapColSku').value;
+            const colDesc = document.getElementById('mapColDesc').value;
+            const colExp = document.getElementById('mapColExpected').value;
+            const colLoc = document.getElementById('mapColLocation').value;
+            const mergeDups = document.getElementById('chkMergeDuplicates').checked;
+
+            const importedMap = new Map();
+            let counter = 1;
+            const stamp = Date.now();
+
+            rawSheetData.forEach(row => {
+                const rawBar = colBar ? String(row[colBar] ?? '').trim() : '';
+                const rawSku = colSku ? String(row[colSku] ?? '').trim() : '';
+                const rawDesc = colDesc ? String(row[colDesc] ?? '').trim() : '';
+                const rawLoc = colLoc ? String(row[colLoc] ?? '').trim() : '';
+                const expectedNum = colExp ? parseQty(row[colExp]) : 0;
+
+                if (!rawBar && !rawSku && !rawDesc) return; // linha vazia
+
+                const uniqueKey = (rawBar || rawSku || `${rawDesc}-${counter}`).toUpperCase();
+
+                if (mergeDups && importedMap.has(uniqueKey)) {
+                    importedMap.get(uniqueKey).expected += expectedNum;
+                } else {
+                    importedMap.set(mergeDups ? uniqueKey : `${uniqueKey}#${counter}`, {
+                        id: `imp-${stamp}-${counter++}`,
+                        barcode: rawBar || rawSku,
+                        sku: rawSku || rawBar,
+                        description: rawDesc || 'PEÇA SEM DESCRIÇÃO',
+                        location: rawLoc,
+                        expected: expectedNum,
+                        counted: 0,
+                        touched: false,
+                        lastScannedAt: null,
+                        lastScannedTs: 0,
+                        notes: ''
+                    });
+                }
+            });
+
+            const finalItems = Array.from(importedMap.values());
+            if (finalItems.length === 0) {
+                showScanFeedback('error', 'Nenhum produto válido encontrado com as colunas selecionadas.');
+                return;
+            }
+
+            state.sessionName = state.pendingSessionName || 'Planilha importada';
+            delete state.pendingSessionName;
+            state.items = finalItems;
+            state.activeItemId = finalItems[0].id;
+            rawSheetData = [];
+            saveStateToStorage();
+            renderAll();
+            closeUploadModal();
+            playBeep('exact');
+            showScanFeedback('success', `Planilha importada! ${finalItems.length} peças prontas para conferência.`);
+        }
+
+        // =========================================================================
+        // ITEM EXTRA / CÓDIGO NÃO ENCONTRADO
+        // =========================================================================
+        function openNewItemModal(scannedBarcode = '') {
+            document.getElementById('newItemModalTitle').textContent = scannedBarcode
+                ? `Código ${scannedBarcode} Não Encontrado`
+                : 'Cadastrar Item Extra no Balanço';
+
+            document.getElementById('newItemBarcode').value = scannedBarcode;
+            document.getElementById('newItemSku').value = '';
+            document.getElementById('newItemDesc').value = '';
+            document.getElementById('newItemLocation').value = '';
+            document.getElementById('newItemCounted').value = '1';
+
+            document.getElementById('newItemModal').classList.remove('hidden');
+            document.getElementById('newItemModal').classList.add('flex');
+            setTimeout(() => document.getElementById('newItemDesc').focus(), 60);
+        }
+
+        function closeNewItemModal() {
+            document.getElementById('newItemModal').classList.add('hidden');
+            document.getElementById('newItemModal').classList.remove('flex');
+            focusScannerInput();
+        }
+
+        function saveNewExtraItem() {
+            const barcode = document.getElementById('newItemBarcode').value.trim() || `EXTRA-${Date.now().toString().slice(-4)}`;
+            const sku = document.getElementById('newItemSku').value.trim() || 'ITEM-EXTRA';
+            const desc = document.getElementById('newItemDesc').value.trim() || `PEÇA EXTRA (${barcode})`;
+            const loc = document.getElementById('newItemLocation').value.trim() || 'SEM LOCAL';
+            const countedRaw = document.getElementById('newItemCounted').value;
+            const counted = String(countedRaw).trim() === '' ? 1 : Math.max(0, parseQty(countedRaw));
+
+            // Se o código já existe (ex.: digitado de novo), soma em vez de duplicar
+            const existing = findItemByCode(barcode.toUpperCase());
+            if (existing) {
+                existing.counted = (Number(existing.counted) || 0) + counted;
+                markScanned(existing);
+                state.activeItemId = existing.id;
+                saveStateToStorage();
+                renderAll();
+                closeNewItemModal();
+                playBeep('success');
+                showScanFeedback('success', `Código já estava no balanço: somado em "${existing.description}".`);
+                return;
+            }
+
+            const newItem = {
+                id: `extra-${Date.now()}`,
+                barcode,
+                sku,
+                description: desc.toUpperCase(),
+                location: loc.toUpperCase(),
+                expected: 0,
+                counted,
+                touched: true,
+                lastScannedAt: nowTime(),
+                lastScannedTs: Date.now(),
+                notes: 'Item extra fora da planilha original'
+            };
+
+            state.items.unshift(newItem);
+            state.activeItemId = newItem.id;
+            saveStateToStorage();
+            renderAll();
+            closeNewItemModal();
+            playBeep('success');
+            showScanFeedback('success', `Item Extra "${newItem.description}" adicionado ao balanço!`);
+        }
+
+        // =========================================================================
+        // EXPORTAÇÃO (.XLSX, .CSV E IMPRESSÃO/PDF)
+        // =========================================================================
+        function openExportModal() {
+            document.getElementById('exportModal').classList.remove('hidden');
+            document.getElementById('exportModal').classList.add('flex');
+        }
+
+        function closeExportModal() {
+            document.getElementById('exportModal').classList.add('hidden');
+            document.getElementById('exportModal').classList.remove('flex');
+            focusScannerInput();
+        }
+
+        function statusLabelFor(item) {
+            const diff = (Number(item.counted) || 0) - (Number(item.expected) || 0);
+            const status = getItemStatus(item);
+            if (status === 'ok') return 'OK (BATENDO)';
+            if (status === 'surplus') return `SOBRA (+${diff})`;
+            if (status === 'shortage') return `FALTA (${diff})`;
+            return 'PENDENTE / NÃO BIPADO';
+        }
+
+        function exportToExcel(mode = 'all') {
+            if (typeof XLSX === 'undefined') {
+                showScanFeedback('error', 'O gerador de planilhas não carregou. Recarregue a página.');
+                return;
+            }
+            let list = state.items;
+            if (mode === 'divergent') {
+                list = state.items.filter(item => (Number(item.counted) || 0) - (Number(item.expected) || 0) !== 0);
+            }
+
+            const rows = list.map(item => {
+                const expected = Number(item.expected) || 0;
+                const counted = Number(item.counted) || 0;
+                return {
+                    'Código de Barras (EAN)': item.barcode || '',
+                    'Código Interno / SKU': item.sku || '',
+                    'Descrição da Peça': item.description || '',
+                    'Localização / Prateleira': item.location || '',
+                    'Estoque Sistema': expected,
+                    'Qtd Contada': counted,
+                    'Diferença (Divergência)': counted - expected,
+                    'Status da Conferência': statusLabelFor(item),
+                    'Horário Último Bipe': item.lastScannedAt || '',
+                    'Observações / Avarias': item.notes || ''
+                };
+            });
+
+            const worksheet = XLSX.utils.json_to_sheet(rows);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Balanco_Estoque');
+
+            const dateStr = new Date().toISOString().slice(0, 10);
+            if (mode === 'csv') {
+                const csvOutput = XLSX.utils.sheet_to_csv(worksheet, { FS: ';' });
+                const blob = new Blob(['﻿' + csvOutput], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `Balanco_Estoque_${dateStr}.csv`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+            } else {
+                const suffix = mode === 'divergent' ? 'Divergencias' : 'Completo';
+                XLSX.writeFile(workbook, `Balanco_Estoque_${suffix}_${dateStr}.xlsx`);
+            }
+
+            closeExportModal();
+            showScanFeedback('success', 'Relatório exportado! Confira a pasta Downloads do aparelho.');
+        }
+
+        function printAuditReport() {
+            const tbody = document.getElementById('printTableBody');
+            document.getElementById('printDate').textContent = new Date().toLocaleString('pt-BR');
+            document.getElementById('printSubtitle').textContent = `Arquivo: ${state.sessionName} | Total de SKUs: ${state.items.length}`;
+
+            tbody.innerHTML = state.items.map(item => {
+                const diff = (Number(item.counted) || 0) - (Number(item.expected) || 0);
+                return `
+                    <tr>
+                        <td class="p-2 font-mono">${escapeHtml(item.barcode || '-')}</td>
+                        <td class="p-2 font-mono font-bold">${escapeHtml(item.sku || '-')}</td>
+                        <td class="p-2 font-semibold">${escapeHtml(item.description)}</td>
+                        <td class="p-2">${escapeHtml(item.location || '-')}</td>
+                        <td class="p-2 text-right font-mono">${escapeHtml(item.expected)}</td>
+                        <td class="p-2 text-right font-mono font-bold">${escapeHtml(item.counted)}</td>
+                        <td class="p-2 text-right font-mono font-bold">${diff > 0 ? '+' + diff : diff}</td>
+                        <td class="p-2">${escapeHtml(item.notes || statusLabelFor(item))}</td>
+                    </tr>`;
+            }).join('');
+
+            closeExportModal();
+            setTimeout(() => window.print(), 200);
+        }
+
+        // =========================================================================
+        // CONFIRMAÇÃO (ZERAR CONTAGENS)
+        // =========================================================================
+        function confirmClearAllData() {
+            document.getElementById('confirmModalTitle').textContent = 'Zerar Todas as Contagens?';
+            document.getElementById('confirmModalDesc').textContent = 'Isso zera as quantidades bipadas de todos os itens da planilha atual. Os produtos importados continuam.';
+            document.getElementById('confirmModalBtnYes').onclick = () => {
+                state.items.forEach(i => {
+                    i.counted = 0;
+                    i.touched = false;
+                    i.lastScannedAt = null;
+                    i.lastScannedTs = 0;
+                });
+                saveStateToStorage();
+                renderAll();
+                closeConfirmModal();
+                showScanFeedback('success', 'Todas as contagens foram zeradas para um novo balanço.');
+            };
+            document.getElementById('confirmModal').classList.remove('hidden');
+            document.getElementById('confirmModal').classList.add('flex');
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirmModal').classList.add('hidden');
+            document.getElementById('confirmModal').classList.remove('flex');
+            focusScannerInput();
+        }
+
+        // =========================================================================
+        // APP INSTALÁVEL (PWA): FUNCIONA OFFLINE E VAI PARA A TELA INICIAL
+        // =========================================================================
+        let waitingWorker = null;
+
+        function registerServiceWorker() {
+            if (!('serviceWorker' in navigator)) return;
+            navigator.serviceWorker.register('sw.js').then(reg => {
+                const showUpdate = worker => {
+                    waitingWorker = worker;
+                    document.getElementById('updateBanner').classList.remove('hidden');
+                };
+                if (reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
+                reg.addEventListener('updatefound', () => {
+                    const nw = reg.installing;
+                    if (!nw) return;
+                    nw.addEventListener('statechange', () => {
+                        if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdate(nw);
+                    });
+                });
+            }).catch(err => console.warn('Service worker não registrado:', err));
+
+            // Só recarrega quando a pessoa pediu a atualização (na 1ª visita o SW assume sem recarregar)
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (!updateRequested) return;
+                updateRequested = false;
+                window.location.reload();
+            });
+        }
+
+        let updateRequested = false;
+        function applyUpdate() {
+            updateRequested = true;
+            if (waitingWorker) waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+            else window.location.reload();
+        }
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            const btn = document.getElementById('btnInstall');
+            btn.classList.remove('hidden');
+            btn.classList.add('flex');
+        });
+
+        window.addEventListener('appinstalled', () => {
+            deferredInstallPrompt = null;
+            document.getElementById('btnInstall').classList.add('hidden');
+            document.getElementById('btnInstall').classList.remove('flex');
+        });
+
+        function installApp() {
+            if (!deferredInstallPrompt) return;
+            deferredInstallPrompt.prompt();
+            deferredInstallPrompt.userChoice.finally(() => {
+                deferredInstallPrompt = null;
+                document.getElementById('btnInstall').classList.add('hidden');
+                document.getElementById('btnInstall').classList.remove('flex');
+            });
+        }
+    </script>
+</body>
+</html>

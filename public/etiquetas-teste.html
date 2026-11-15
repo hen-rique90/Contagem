@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Etiquetas de Teste</title>
+    <link rel="stylesheet" href="css/app.css">
+    <style>
+        .label { break-inside: avoid; }
+        @media print { .no-print { display: none !important; } body { background: #fff; } }
+    </style>
+</head>
+<body class="text-slate-800 p-4">
+    <div class="max-w-3xl mx-auto">
+        <div class="no-print mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <h1 class="font-extrabold text-lg">Etiquetas de teste (lote de exemplo)</h1>
+                <p class="text-xs text-slate-500">Imprima ou abra esta página em outra tela e aponte a câmera do app para os códigos.</p>
+            </div>
+            <div class="flex gap-2">
+                <a href="./" class="px-3 py-2 rounded-lg text-xs font-bold bg-slate-200 text-slate-800">Voltar ao app</a>
+                <button onclick="window.print()" class="px-3 py-2 rounded-lg text-xs font-bold bg-blue-600 text-white">Imprimir</button>
+            </div>
+        </div>
+        <div id="labels" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+    </div>
+
+    <script>
+        const ITEMS = [
+            ['7891234560018', 'PST-4092-STD', 'Jogo de pistão AP 1.6/1.8'],
+            ['7891234560025', 'BRZ-1104-025', 'Bronzina de biela Fire'],
+            ['7891234560032', 'JNT-8821-MLS', 'Junta do cabeçote Amarok'],
+            ['7891234560049', 'FLT-PSL55', 'Filtro de óleo PSL55'],
+            ['7891234560056', 'BMB-UB0630', 'Bomba d’água Corsa/Celta'],
+            ['7891234560063', 'CRD-CT874K1', 'Kit correia dentada Gol/Fox'],
+            ['7891234560070', 'RET-02911BRGP', 'Retentor virabrequim Ranger/S10'],
+            ['7891234560087', 'EMB-620308400', 'Kit embreagem HB20'],
+            ['7891234560094', 'VEL-BKR6E', 'Velas NGK BKR6E'],
+            ['7891234560100', 'CAB-40112', 'Cabeçote Zetec Rocam'],
+            ['7899999999999', 'NAO-CADASTRADO', 'Código fora da planilha (teste de erro)']
+        ];
+
+        // Gera o desenho de barras de um EAN-13
+        function ean13Bits(code) {
+            const L = ['0001101', '0011001', '0010011', '0111101', '0100011', '0110001', '0101111', '0111011', '0110111', '0001011'];
+            const R = L.map(c => [...c].map(x => (x === '0' ? '1' : '0')).join(''));
+            const G = R.map(c => [...c].reverse().join(''));
+            const P = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG', 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'];
+            const d = [...code].map(Number);
+            let bits = '101';
+            for (let i = 1; i <= 6; i++) bits += (P[d[0]][i - 1] === 'L' ? L : G)[d[i]];
+            bits += '01010';
+            for (let i = 7; i <= 12; i++) bits += R[d[i]];
+            return bits + '101';
+        }
+
+        function barcodeSvg(code) {
+            const bits = ean13Bits(code);
+            const quiet = 11, w = bits.length + quiet * 2;
+            let rects = '';
+            [...bits].forEach((b, i) => { if (b === '1') rects += `<rect x="${i + quiet}" y="2" width="1" height="38"/>`; });
+            // Cada barra com largura inteira de pixels (3px), sem esticar: barras distorcidas não são lidas
+            const MOD = 3;
+            const H = 52;
+            return `<svg width="${w * MOD}" height="${H * MOD}" viewBox="0 0 ${w} ${H}" shape-rendering="crispEdges" class="mx-auto block"><rect width="${w}" height="${H}" fill="#fff"/><g fill="#000">${rects}</g><text x="${w / 2}" y="${H - 2}" font-size="9" text-anchor="middle" font-family="monospace" letter-spacing="1">${code}</text></svg>`;
+        }
+
+        document.getElementById('labels').innerHTML = ITEMS.map(([ean, sku, desc]) => `
+            <div class="label bg-white border border-slate-300 rounded-xl p-3">
+                <div class="flex justify-between text-[11px] font-bold"><span>${sku}</span><span class="text-slate-500">EAN-13</span></div>
+                <p class="text-xs text-slate-600 mb-1">${desc}</p>
+                ${barcodeSvg(ean)}
+            </div>`).join('');
+    </script>
+</body>
+</html>
