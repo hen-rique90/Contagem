@@ -94,6 +94,9 @@
                 </div>
             </div>
 
+            <!-- PLANILHA DO SISTEMA (opcional antes de contar) -->
+            <div id="systemStatusCard" class="rounded-xl border p-3 flex items-center justify-between gap-3"></div>
+
             <!-- LEITOR -->
             <div class="bg-white rounded-2xl shadow-sm border-2 border-slate-200 p-4">
                 <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
@@ -194,7 +197,7 @@
                     <label for="activeItemDesc" class="block text-[10px] font-bold uppercase text-slate-400 mt-3">Descrição (opcional)</label>
                     <input id="activeItemDesc" type="text" onchange="saveActiveField('description', this.value)" placeholder="Sem descrição — toque para escrever"
                         class="w-full mt-1 px-0 py-1 font-extrabold text-lg sm:text-xl text-slate-900 bg-transparent border-0 border-b border-dashed border-slate-300 focus:outline-none focus:border-blue-500 placeholder-slate-300">
-                    <p id="activeItemSystemHint" class="hidden text-[11px] text-emerald-700 font-semibold mt-1"><i class="fa-solid fa-link mr-1"></i>Encontrado na planilha do sistema</p>
+                    <p id="activeItemSystemHint" class="hidden text-[11px] font-semibold mt-1"></p>
                     <p id="activeItemLocations" class="text-[11px] text-amber-700 font-semibold mt-1"></p>
 
                     <div class="mt-4 bg-blue-600 text-white p-4 rounded-2xl shadow-md text-center ring-4 ring-blue-600/15">
@@ -316,12 +319,19 @@
                             <label class="block text-xs font-bold text-slate-700 mb-1"><i class="fa-solid fa-location-dot text-amber-600 mr-1"></i> Local / prateleira</label>
                             <select id="mapColLocation" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium"></select>
                         </div>
-                        <div class="sm:col-span-2">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1"><i class="fa-solid fa-industry text-slate-600 mr-1"></i> Código alternativo (ex.: cód. fabricação)</label>
+                            <select id="mapColAlt" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium"></select>
+                        </div>
+                        <div>
                             <label class="block text-xs font-bold text-slate-700 mb-1"><i class="fa-solid fa-tag text-slate-600 mr-1"></i> Descrição do produto</label>
                             <select id="mapColDesc" class="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium"></select>
                         </div>
                     </div>
-                    <p class="text-[11px] text-slate-500">Se o mesmo código aparecer em mais de uma linha (ex.: em locais diferentes), os saldos são somados.</p>
+                    <p class="text-[11px] text-slate-500">
+                        Na leitura, o app procura o código lido no <strong>código de barras</strong>, no <strong>código interno</strong> e no <strong>código alternativo</strong>.
+                        Se o mesmo código de barras aparecer em mais de uma linha, os saldos são somados.
+                    </p>
                     <button onclick="confirmSystemImport()" class="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow">
                         <i class="fa-solid fa-scale-balanced mr-1"></i> Comparar com a minha contagem
                     </button>
@@ -492,6 +502,7 @@
         // ESTADO
         // =========================================================================
         const STORAGE_KEY = 'contagem_estoque_v2';
+        const SYSTEM_KEY = 'contagem_estoque_v2_sistema'; // planilha do sistema: grande, salva só ao importar
         const IS_TOUCH = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
         const LIST_RENDER_LIMIT = 300;
         const CAM_REARM_MS = 1200;   // tempo sem ver o código para contar a mesma peça de novo
@@ -522,6 +533,7 @@
         let camLast = { code: null, seenAt: 0, countedAt: 0 };
         let deferredInstallPrompt = null;
         let systemIndex = null;
+        let returnToCountAfterImport = false;
 
         // =========================================================================
         // UTILITÁRIOS
@@ -645,7 +657,7 @@
         function saveState() {
             const el = document.getElementById('saveStatusText');
             try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, system: undefined }));
                 el.textContent = 'Salvo no aparelho';
                 el.classList.remove('text-rose-600', 'font-bold');
             } catch (e) {
@@ -665,6 +677,39 @@
             }
             if (!Array.isArray(state.counts)) state.counts = [];
             if (!Array.isArray(state.history)) state.history = [];
+            state.system = null;
+            try {
+                const raw = localStorage.getItem(SYSTEM_KEY);
+                if (raw) {
+                    const s = JSON.parse(raw);
+                    state.system = {
+                        fileName: s.fileName, importedAt: s.importedAt, ignoredRows: s.ignoredRows || 0,
+                        items: s.rows.map(([barcode, sku, alt, description, location, expected, dups]) =>
+                            ({ barcode, sku, alt, description, location, expected, dups: dups || 0 }))
+                    };
+                }
+            } catch (e) {
+                console.warn('Erro ao ler a planilha do sistema salva:', e);
+            }
+        }
+
+        // Formato compacto (listas em vez de objetos) para caber no armazenamento do aparelho
+        function saveSystem() {
+            try {
+                if (!state.system) {
+                    localStorage.removeItem(SYSTEM_KEY);
+                    return true;
+                }
+                const s = state.system;
+                localStorage.setItem(SYSTEM_KEY, JSON.stringify({
+                    fileName: s.fileName, importedAt: s.importedAt, ignoredRows: s.ignoredRows || 0,
+                    rows: s.items.map(it => [it.barcode, it.sku, it.alt, it.description, it.location, it.expected, it.dups || 0])
+                }));
+                return true;
+            } catch (e) {
+                console.warn('Não foi possível salvar a planilha do sistema:', e);
+                return false;
+            }
         }
 
         function updateOnlineBadge() {
@@ -676,6 +721,7 @@
         // =========================================================================
         function setTab(tab) {
             if (tab !== 'contagem' && (isCameraRunning || isCameraStarting)) stopCameraScanner();
+            if (tab === 'contagem') returnToCountAfterImport = false;
             state.tab = tab;
             document.getElementById('tabContagem').classList.toggle('hidden', tab !== 'contagem');
             document.getElementById('tabComparar').classList.toggle('hidden', tab !== 'comparar');
@@ -790,7 +836,12 @@
                     addToHistory(code, 0, true);
                 }
                 state.activeCode = code;
-                playBeep('success');
+                if (hasSystem() && !findSystemItem(code)) {
+                    playBeep('error');
+                    showScanFeedback('error', `NÃO ESTÁ NO SISTEMA: ${code}. Confira a etiqueta ou digite o código interno.`);
+                } else {
+                    playBeep('success');
+                }
                 saveState();
                 renderAll();
                 openSetQtyModal('add');
@@ -799,7 +850,11 @@
 
             const { item, created } = addQty(code, 1);
             const name = item.description ? ` — ${item.description}` : '';
-            if (created) {
+            if (hasSystem() && !findSystemItem(code)) {
+                // Planilha do sistema carregada e o código não está nela
+                playBeep('error');
+                showScanFeedback('error', `NÃO ESTÁ NO SISTEMA: ${code} (contado ${fmtNum(item.qty)}). Confira a etiqueta ou digite o código interno.`);
+            } else if (created) {
                 playBeep('new');
                 showScanFeedback('new', `NOVO: ${code}${name} (1)`);
             } else {
@@ -1084,7 +1139,38 @@
         // =========================================================================
         // RENDERIZAÇÃO DA CONTAGEM
         // =========================================================================
+        function hasSystem() {
+            return Boolean(state.system && state.system.items && state.system.items.length);
+        }
+
+        function renderSystemStatus() {
+            const card = document.getElementById('systemStatusCard');
+            if (hasSystem()) {
+                const missing = state.counts.filter(c => !findSystemItem(c.code)).length;
+                card.className = 'rounded-xl border p-3 flex items-center justify-between gap-3 bg-emerald-50 border-emerald-200';
+                card.innerHTML = `
+                    <div class="min-w-0 text-xs text-emerald-900">
+                        <p class="font-bold"><i class="fa-solid fa-circle-check mr-1"></i>Conferindo com o sistema</p>
+                        <p class="truncate">${escapeHtml(state.system.fileName)} · ${state.system.items.length.toLocaleString('pt-BR')} produtos</p>
+                        ${missing ? `<p class="font-bold text-rose-700 mt-0.5"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${missing} ${missing === 1 ? 'código lido não está' : 'códigos lidos não estão'} no sistema</p>` : ''}
+                    </div>
+                    <button onclick="openSystemUploadFromCount()" class="text-[11px] font-bold text-emerald-800 hover:underline shrink-0">Trocar</button>`;
+            } else {
+                card.className = 'rounded-xl border p-3 flex items-center justify-between gap-3 bg-white border-dashed border-slate-300';
+                card.innerHTML = `
+                    <p class="text-xs text-slate-600 min-w-0"><strong>Quer saber na hora se o item está no sistema?</strong> Carregue a planilha do sistema antes de contar (o saldo continua escondido).</p>
+                    <button onclick="openSystemUploadFromCount()" class="px-3 py-2 rounded-lg text-[11px] font-bold bg-slate-900 text-amber-400 shrink-0">Carregar</button>`;
+            }
+        }
+
+        function openSystemUploadFromCount() {
+            returnToCountAfterImport = true;
+            setTab('comparar');
+            changeSystemSheet();
+        }
+
         function renderAll() {
+            renderSystemStatus();
             renderKpis();
             renderActiveItem();
             renderCountList();
@@ -1121,7 +1207,16 @@
             if (document.activeElement !== descEl) descEl.value = displayDescription(item);
             const notesEl = document.getElementById('activeItemNotes');
             if (document.activeElement !== notesEl) notesEl.value = item.notes || '';
-            document.getElementById('activeItemSystemHint').classList.toggle('hidden', !findSystemItem(item.code));
+            const hint = document.getElementById('activeItemSystemHint');
+            const sysItem = findSystemItem(item.code);
+            hint.classList.toggle('hidden', !hasSystem());
+            if (sysItem) {
+                hint.className = 'text-[11px] font-semibold mt-1 text-emerald-700';
+                hint.innerHTML = `<i class="fa-solid fa-link mr-1"></i>No sistema: cód. ${escapeHtml(sysItem.sku || '-')}${sysItem.alt ? ' · fab. ' + escapeHtml(sysItem.alt) : ''}`;
+            } else if (hasSystem()) {
+                hint.className = 'text-[11px] font-bold mt-1 text-rose-700';
+                hint.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i>Este código NÃO está na planilha do sistema';
+            }
             document.getElementById('activeItemLocations').textContent = item.locations && item.locations.length
                 ? `Local: ${item.locations.join(', ')}` : '';
         }
@@ -1174,6 +1269,7 @@
                         <div class="min-w-0 flex-1">
                             <div class="flex flex-wrap items-center gap-1.5 mb-1">
                                 <span class="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700"><i class="fa-solid fa-barcode mr-1"></i>${code}</span>
+                                ${hasSystem() && !findSystemItem(c.code) ? '<span class="text-[11px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Não está no sistema</span>' : ''}
                                 ${(c.locations || []).length ? `<span class="text-[11px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded"><i class="fa-solid fa-location-dot mr-1"></i>${escapeHtml(c.locations.join(', '))}</span>` : ''}
                             </div>
                             <h4 class="font-bold text-sm ${desc ? 'text-slate-900' : 'text-slate-400 italic font-medium'} truncate">${desc ? escapeHtml(desc) : 'Sem descrição'}</h4>
@@ -1206,7 +1302,8 @@
             return [...state.counts]
                 .sort((a, b) => a.code.localeCompare(b.code, 'pt-BR', { numeric: true }))
                 .map(c => ({
-                    'Código de Barras': c.code,
+                    'Código Lido': c.code,
+                    'Código Interno (sistema)': (findSystemItem(c.code) || {}).sku || '',
                     'Descrição': displayDescription(c),
                     'Quantidade Contada': Number(c.qty) || 0,
                     'Local': (c.locations || []).join(', '),
@@ -1222,7 +1319,7 @@
                 return;
             }
             const ws = XLSX.utils.json_to_sheet(countRows());
-            ws['!cols'] = [{ wch: 16 }, { wch: 45 }, { wch: 12 }, { wch: 22 }, { wch: 30 }, { wch: 20 }, { wch: 20 }];
+            ws['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 45 }, { wch: 12 }, { wch: 22 }, { wch: 30 }, { wch: 20 }, { wch: 20 }];
             const name = `Contagem_${fileStamp()}`;
             if (format === 'csv') {
                 downloadBlob(new Blob(['﻿' + XLSX.utils.sheet_to_csv(ws, { FS: ';' })], { type: 'text/csv;charset=utf-8;' }), `${name}.csv`);
@@ -1242,12 +1339,23 @@
             if (!state.system || !Array.isArray(state.system.items)) return;
             systemIndex = new Map();
             const put = (k, i) => { if (k && !systemIndex.has(k)) systemIndex.set(k, i); };
-            state.system.items.forEach((it, i) => {
+            const items = state.system.items;
+            // 1º códigos de barras, 2º códigos internos (podem ser vários: "10 / 2034")
+            items.forEach((it, i) => {
                 const bar = normCode(it.barcode);
-                const sku = normCode(it.sku);
                 put(bar, i);
-                put(sku, i);
                 put(stripZeros(bar), i);
+            });
+            items.forEach((it, i) => String(it.sku || '').split(' / ').forEach(s => put(normCode(s), i)));
+            // 3º código alternativo (ex.: cód. fabricação), só quando ele é de um produto só
+            const altCount = new Map();
+            items.forEach(it => {
+                const a = normCode(it.alt);
+                if (a) altCount.set(a, (altCount.get(a) || 0) + 1);
+            });
+            items.forEach((it, i) => {
+                const a = normCode(it.alt);
+                if (a && altCount.get(a) === 1) put(a, i);
             });
         }
 
@@ -1294,16 +1402,16 @@
             reader.onload = (e) => {
                 try {
                     const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-                    const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
-                    if (!json.length) {
+                    const { headers, rows } = readSheetWithHeader(wb.Sheets[wb.SheetNames[0]]);
+                    if (!rows.length) {
                         alert('A planilha parece estar vazia.');
                         return;
                     }
-                    rawSheetData = json;
+                    rawSheetData = rows;
                     pendingFileName = file.name;
                     document.getElementById('uploadedFileName').textContent = file.name;
-                    document.getElementById('uploadedRowCount').textContent = `${json.length.toLocaleString('pt-BR')} linhas encontradas`;
-                    populateColumnMapper(Object.keys(json[0]));
+                    document.getElementById('uploadedRowCount').textContent = `${rows.length.toLocaleString('pt-BR')} linhas de produtos encontradas`;
+                    populateColumnMapper(headers);
                     document.getElementById('uploadStep1').classList.add('hidden');
                     document.getElementById('uploadStep2').classList.remove('hidden');
                 } catch (err) {
@@ -1314,24 +1422,53 @@
             reader.readAsArrayBuffer(file);
         }
 
+        // Relatórios de BI costumam vir com linhas de "filtros aplicados" antes do cabeçalho:
+        // o cabeçalho é a primeira linha "cheia" (com várias colunas preenchidas).
+        function readSheetWithHeader(ws) {
+            const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+            const filled = r => r.filter(v => String(v).trim() !== '').length;
+            const top = matrix.slice(0, 30);
+            const maxFilled = Math.max(0, ...top.map(filled));
+            let h = top.findIndex(r => filled(r) >= Math.max(2, Math.ceil(maxFilled * 0.6)));
+            if (h < 0) h = 0;
+
+            const seen = {};
+            const headers = (matrix[h] || []).map((v, i) => {
+                let name = String(v).trim() || `Coluna ${i + 1}`;
+                if (seen[name]) name = `${name} (${++seen[name]})`;
+                else seen[name] = 1;
+                return name;
+            });
+            const rows = matrix.slice(h + 1)
+                .filter(r => filled(r) > 0)
+                .map(r => Object.fromEntries(headers.map((name, i) => [name, r[i] ?? ''])));
+            return { headers, rows };
+        }
+
         function populateColumnMapper(headers) {
+            // exact: nomes exatos preferidos; keywords: pedaços do nome, em ordem de prioridade
             const selects = [
-                { id: 'mapColBarcode', required: true, keywords: ['barras', 'ean', 'gtin', 'barcode', 'codbarras'] },
-                { id: 'mapColExpected', required: true, keywords: ['saldo', 'estoque', 'qtd', 'quant', 'sistema', 'fisico', 'disponivel'] },
-                { id: 'mapColSku', required: false, keywords: ['interno', 'referencia', 'ref', 'sku', 'codigo', 'cod'] },
-                { id: 'mapColLocation', required: false, keywords: ['local', 'prateleira', 'endereco', 'corredor', 'locacao', 'gaveta'] },
-                { id: 'mapColDesc', required: false, keywords: ['descricao', 'produto', 'peca', 'nome', 'discriminacao', 'mercadoria'] }
+                { id: 'mapColBarcode', required: true, exact: ['codigodebarra', 'codigo de barras', 'ean', 'gtin'], keywords: ['barra', 'ean', 'gtin', 'barcode'] },
+                { id: 'mapColExpected', required: true, exact: ['saldo em estoque', 'estoque atual', 'saldo'], keywords: ['saldo', 'estoque', 'qtd', 'quant', 'disponivel'] },
+                { id: 'mapColSku', required: false, exact: ['cod item', 'codigo', 'cod produto', 'codigo interno', 'sku'], keywords: ['interno', 'cod item', 'cod prod', 'referencia', 'sku', 'codigo', 'cod'] },
+                { id: 'mapColAlt', required: false, exact: ['cod fabricacao', 'codigo fabricante', 'cod fabricante'], keywords: ['fabrica', 'fabricante', 'original', 'alternativ'] },
+                { id: 'mapColLocation', required: false, exact: ['local', 'localizacao', 'endereco'], keywords: ['prateleira', 'endereco', 'corredor', 'locacao', 'localiza', 'gaveta'] },
+                { id: 'mapColDesc', required: false, exact: ['item', 'descricao', 'produto', 'nome'], keywords: ['descricao', 'produto', 'peca', 'nome', 'mercadoria'] }
             ];
-            const norm = h => String(h).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+            const norm = h => String(h).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim();
             const used = new Set();
             selects.forEach(cfg => {
                 const el = document.getElementById(cfg.id);
                 el.innerHTML = (cfg.required ? '' : '<option value="">-- Não tem / ignorar --</option>') +
                     headers.map(h => `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`).join('');
                 let best = '';
-                for (const kw of cfg.keywords) {
-                    best = headers.find(h => !used.has(h) && norm(h).includes(kw)) || '';
+                for (const ex of cfg.exact) {
+                    best = headers.find(h => !used.has(h) && norm(h) === ex) || '';
                     if (best) break;
+                }
+                for (const kw of cfg.keywords) {
+                    if (best) break;
+                    best = headers.find(h => !used.has(h) && norm(h).includes(kw)) || '';
                 }
                 if (best) {
                     used.add(best);
@@ -1345,27 +1482,40 @@
         function confirmSystemImport() {
             const col = id => document.getElementById(id).value;
             const colBar = col('mapColBarcode'), colExp = col('mapColExpected'), colSku = col('mapColSku'),
-                colLoc = col('mapColLocation'), colDesc = col('mapColDesc');
+                colAlt = col('mapColAlt'), colLoc = col('mapColLocation'), colDesc = col('mapColDesc');
             if (colBar === colExp) {
                 alert('A coluna do código e a do saldo não podem ser a mesma.');
                 return;
             }
+            const cell = (row, c) => {
+                if (!c) return '';
+                const v = String(row[c] ?? '').trim();
+                return v === '-' ? '' : v;
+            };
 
+            // Uma linha por código de barras (ou, sem código de barras, por código interno).
+            // Mesmo código de barras em produtos diferentes: soma os saldos e guarda os códigos internos juntos.
             const map = new Map();
+            let ignoredRows = 0;
             rawSheetData.forEach(row => {
-                const barcode = String(row[colBar] ?? '').trim();
-                const sku = colSku ? String(row[colSku] ?? '').trim() : '';
-                const key = normCode(barcode || sku);
-                if (!key) return;
+                const barcode = cell(row, colBar);
+                const sku = cell(row, colSku);
+                const key = barcode ? 'B:' + normCode(barcode) : sku ? 'S:' + normCode(sku) : '';
+                if (!key) { ignoredRows++; return; }
                 const expected = parseQty(row[colExp]);
-                const location = colLoc ? String(row[colLoc] ?? '').trim() : '';
-                const description = colDesc ? String(row[colDesc] ?? '').trim() : '';
+                const alt = cell(row, colAlt);
+                const location = cell(row, colLoc);
+                const description = cell(row, colDesc).slice(0, 120);
                 const existing = map.get(key);
                 if (existing) {
                     existing.expected += expected;
+                    if (sku && !existing.sku.split(' / ').includes(sku)) {
+                        existing.sku = existing.sku ? `${existing.sku} / ${sku}` : sku;
+                        existing.dups++;
+                    }
                     if (location && !existing.location.split(', ').includes(location)) existing.location = existing.location ? `${existing.location}, ${location}` : location;
                 } else {
-                    map.set(key, { barcode: barcode || sku, sku, description, location, expected });
+                    map.set(key, { barcode, sku, alt, description, location, expected, dups: 0 });
                 }
             });
 
@@ -1374,13 +1524,16 @@
                 alert('Nenhum produto com código encontrado nas colunas escolhidas.');
                 return;
             }
-            setSystem(pendingFileName || 'Planilha do sistema', items);
+            setSystem(pendingFileName || 'Planilha do sistema', items, ignoredRows);
         }
 
-        function setSystem(fileName, items) {
-            state.system = { fileName, importedAt: nowStamp(), items };
+        function setSystem(fileName, items, ignoredRows = 0) {
+            state.system = { fileName, importedAt: nowStamp(), items, ignoredRows };
             rawSheetData = [];
             rebuildSystemIndex();
+            if (!saveSystem()) {
+                alert('A planilha foi carregada, mas é grande demais para ficar salva no aparelho. A comparação funciona agora; se fechar o app, carregue de novo.');
+            }
             // Preenche a descrição dos itens contados que ainda não têm
             state.counts.forEach(c => {
                 if (!c.description) {
@@ -1391,7 +1544,13 @@
             state.compareFilter = 'divergent';
             saveState();
             renderAll();
-            renderCompareTab();
+            if (returnToCountAfterImport) {
+                returnToCountAfterImport = false;
+                setTab('contagem');
+                showScanFeedback('success', `Planilha do sistema carregada (${items.length.toLocaleString('pt-BR')} produtos). Agora o app avisa quando um código não está no sistema.`);
+            } else {
+                renderCompareTab();
+            }
         }
 
         function loadSampleSystem() {
@@ -1434,22 +1593,28 @@
                 (c.locations || []).forEach(l => locs[i].add(l));
             });
 
-            const rows = sys.map((it, i) => {
+            let zeroIgnored = 0;
+            const rows = [];
+            sys.forEach((it, i) => {
                 const expected = Number(it.expected) || 0;
+                // Produto sem saldo no sistema e não encontrado na contagem: não há o que comparar
+                if (expected === 0 && counted[i] === 0) { zeroIgnored++; return; }
                 const diff = counted[i] - expected;
                 let status = 'ok';
                 if (diff !== 0) status = counted[i] === 0 ? 'nao_contado' : diff < 0 ? 'falta' : 'sobra';
-                return {
-                    code: it.barcode, sku: it.sku, description: it.description, location: it.location,
-                    countedLocation: [...locs[i]].join(', '), expected, counted: counted[i], diff, status, notes: notes[i].join(' | ')
-                };
+                const dupNote = it.dups ? `Mesmo código de barras em ${it.dups + 1} produtos do sistema (cód. ${it.sku}): saldos somados` : '';
+                rows.push({
+                    code: it.barcode || it.sku, barcode: it.barcode || '', sku: it.sku || '', alt: it.alt || '', description: it.description, location: it.location,
+                    countedLocation: [...locs[i]].join(', '), expected, counted: counted[i], diff, status,
+                    notes: [dupNote, ...notes[i]].filter(Boolean).join(' | ')
+                });
             });
             extras.forEach(c => rows.push({
-                code: c.code, sku: '', description: c.description || '', location: '', countedLocation: (c.locations || []).join(', '),
+                code: c.code, barcode: c.code, sku: '', alt: '', description: c.description || '', location: '', countedLocation: (c.locations || []).join(', '),
                 expected: 0, counted: Number(c.qty) || 0, diff: Number(c.qty) || 0, status: 'extra', notes: c.notes || ''
             }));
 
-            const summary = { total: rows.length, ok: 0, falta: 0, nao_contado: 0, sobra: 0, extra: 0, unitsMissing: 0, unitsSurplus: 0 };
+            const summary = { total: rows.length, zeroIgnored, ok: 0, falta: 0, nao_contado: 0, sobra: 0, extra: 0, unitsMissing: 0, unitsSurplus: 0 };
             rows.forEach(r => {
                 summary[r.status]++;
                 if (r.diff < 0) summary.unitsMissing += -r.diff;
@@ -1469,7 +1634,8 @@
             const sys = state.system;
             document.getElementById('systemFileName').textContent = sys.fileName;
             document.getElementById('systemFileInfo').textContent =
-                `${sys.items.length.toLocaleString('pt-BR')} produtos no sistema · importada em ${sys.importedAt} · contagem com ${state.counts.length.toLocaleString('pt-BR')} códigos / ${fmtNum(totalUnits())} peças`;
+                `${sys.items.length.toLocaleString('pt-BR')} produtos no sistema · importada em ${sys.importedAt} · contagem com ${state.counts.length.toLocaleString('pt-BR')} códigos / ${fmtNum(totalUnits())} peças` +
+                (summary.zeroIgnored ? ` · ${summary.zeroIgnored.toLocaleString('pt-BR')} produtos com saldo 0 e não contados ficam de fora` : '');
 
             const kpi = (label, value, sub, cls, filter) => `
                 <button onclick="setCompareFilter('${filter}')" class="text-left p-3 rounded-xl border transition ${cls} ${state.compareFilter === filter ? 'ring-2 ring-slate-900' : ''}">
@@ -1496,7 +1662,7 @@
             const filtered = rows.filter(r => {
                 if (state.compareFilter === 'divergent' && r.status === 'ok') return false;
                 if (!['divergent', 'all'].includes(state.compareFilter) && r.status !== state.compareFilter) return false;
-                if (query && !`${r.code} ${r.sku} ${r.description} ${r.location} ${r.countedLocation}`.toUpperCase().includes(query)) return false;
+                if (query && !`${r.code} ${r.sku} ${r.alt} ${r.description} ${r.location} ${r.countedLocation}`.toUpperCase().includes(query)) return false;
                 return true;
             }).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 
@@ -1520,7 +1686,7 @@
                     <div class="p-3">
                         <div class="flex items-center justify-between gap-2">
                             <span class="px-2 py-0.5 rounded-md text-[11px] font-bold ${st.cls}">${st.label}</span>
-                            <span class="font-mono text-xs text-slate-500 break-all text-right">${escapeHtml(r.code)}</span>
+                            <span class="font-mono text-xs text-slate-500 break-all text-right">${escapeHtml(r.code)}${r.sku && r.sku !== r.code ? ` · cód. ${escapeHtml(r.sku)}` : ''}</span>
                         </div>
                         <p class="font-semibold text-sm mt-1 ${r.description ? 'text-slate-900' : 'text-slate-400 italic'}">${escapeHtml(r.description || 'Sem descrição')}</p>
                         ${r.location || r.countedLocation ? `<p class="text-[11px] text-amber-700">${escapeHtml(r.location || r.countedLocation)}</p>` : ''}
@@ -1538,7 +1704,7 @@
                 return `
                     <tr class="hover:bg-slate-50">
                         <td class="p-3"><span class="px-2 py-0.5 rounded-md text-[11px] font-bold whitespace-nowrap ${st.cls}">${st.label}</span></td>
-                        <td class="p-3 font-mono text-xs">${escapeHtml(r.code)}${r.sku && r.sku !== r.code ? `<span class="block text-slate-400">${escapeHtml(r.sku)}</span>` : ''}</td>
+                        <td class="p-3 font-mono text-xs">${escapeHtml(r.code)}${r.sku && r.sku !== r.code ? `<span class="block text-slate-400">cód. ${escapeHtml(r.sku)}</span>` : ''}${r.alt ? `<span class="block text-slate-400">fab. ${escapeHtml(r.alt)}</span>` : ''}</td>
                         <td class="p-3">
                             <span class="font-semibold ${r.description ? 'text-slate-900' : 'text-slate-400 italic'}">${escapeHtml(r.description || 'Sem descrição')}</span>
                             ${r.location || r.countedLocation ? `<span class="block text-[11px] text-amber-700">${escapeHtml(r.location || r.countedLocation)}</span>` : ''}
@@ -1553,8 +1719,9 @@
 
         function comparisonSheetRows(rows) {
             return rows.map(r => ({
-                'Código de Barras': r.code,
+                'Código de Barras': r.barcode || '',
                 'Código Interno': r.sku || '',
+                'Código Fabricação / Alternativo': r.alt || '',
                 'Descrição': r.description || '',
                 'Local (sistema)': r.location || '',
                 'Local (contagem)': r.countedLocation || '',
@@ -1574,7 +1741,7 @@
             const { rows, summary } = computeComparison();
             const order = { nao_contado: 0, falta: 1, sobra: 2, extra: 3, ok: 4 };
             const sorted = [...rows].sort((a, b) => order[a.status] - order[b.status] || String(a.code).localeCompare(String(b.code), 'pt-BR', { numeric: true }));
-            const cols = [{ wch: 16 }, { wch: 16 }, { wch: 45 }, { wch: 22 }, { wch: 22 }, { wch: 13 }, { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 30 }];
+            const cols = [{ wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 45 }, { wch: 22 }, { wch: 22 }, { wch: 13 }, { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 40 }];
             const name = `Comparacao_Contagem_x_Sistema_${fileStamp()}`;
 
             if (format === 'csv') {
@@ -1596,6 +1763,7 @@
                 ['Não contado (no sistema, não lido)', summary.nao_contado],
                 ['Sobra (contou mais)', summary.sobra],
                 ['Só na contagem (não cadastrado no sistema)', summary.extra],
+                ['Saldo 0 no sistema e não contados (fora do relatório)', summary.zeroIgnored],
                 [],
                 ['Total de peças faltando', summary.unitsMissing],
                 ['Total de peças sobrando', summary.unitsSurplus]
@@ -1612,7 +1780,7 @@
             addSheet('Comparação completa', sorted);
             // Contagem física bruta, para conferência
             const wsCount = XLSX.utils.json_to_sheet(countRows());
-            wsCount['!cols'] = [{ wch: 16 }, { wch: 45 }, { wch: 12 }, { wch: 22 }, { wch: 30 }, { wch: 20 }, { wch: 20 }];
+            wsCount['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 45 }, { wch: 12 }, { wch: 22 }, { wch: 30 }, { wch: 20 }, { wch: 20 }];
             XLSX.utils.book_append_sheet(wb, wsCount, 'Contagem');
             XLSX.writeFile(wb, `${name}.xlsx`);
         }

@@ -15,6 +15,19 @@ App para **contar o estoque lendo códigos de barras** e depois **comparar com o
 
    Depois é só **baixar a comparação** (.xlsx com as abas *Resumo*, *Divergências*, *Comparação completa* e *Contagem*), baixar em CSV ou imprimir.
 
+### Saber na hora se o item está no sistema
+Na tela **Contar**, toque em **Carregar** e escolha a planilha de saldo do sistema **antes** de começar. A partir daí:
+- código que **está** no sistema: bipe normal e a descrição aparece;
+- código que **não está**: som de erro e o aviso **"NÃO ESTÁ NO SISTEMA"**. O item fica marcado na lista.
+
+O saldo continua escondido durante a contagem. O app procura o código lido no **código de barras**, no **código interno** e no **código alternativo** (ex.: código de fabricação). Assim, peças sem código de barras no cadastro podem ser contadas digitando o código interno.
+
+### Planilha do Movere (via BI)
+O relatório de estoque do BI (com as colunas `CodigoDeBarra`, `Cód Item`, `Cód Fabricação`, `Item` e `Saldo em Estoque`) é reconhecido automaticamente, inclusive com as linhas de "filtros aplicados" no topo. Observações:
+- se o mesmo código de barras estiver em mais de um produto, os saldos são somados e a planilha de comparação avisa quais códigos internos foram juntados;
+- produtos com saldo 0 que não foram contados ficam fora do relatório de comparação (só aparecem como total no Resumo);
+- confira os filtros do relatório no BI (grupos, estabelecimento, depósito): produto que ficou fora do filtro aparece como **"Fora do sistema"** na comparação.
+
 ### Dicas na contagem
 - **Local / prateleira (opcional):** escreva onde está contando (ex.: `CORREDOR A1`). Cada leitura guarda esse local.
 - **Leu errado?** Use **Desfazer último bipe**. Para corrigir a quantidade, toque no item e use **-1**, **Digitar** ou **Remover item**.
@@ -71,7 +84,7 @@ src/input.css            → fonte dos estilos (Tailwind)
 ## Mudou alguma coisa?
 
 - **Mudou classes/estilos no HTML:** rode `npm install` e depois `npm run build:css` para atualizar `public/css/app.css`.
-- **Qualquer mudança em `public/`:** aumente a versão em `public/sw.js` (`contagem-estoque-v2` → `v3`). Assim os aparelhos baixam a versão nova e mostram o aviso **"Nova versão disponível → Atualizar"**. A contagem é mantida.
+- **Qualquer mudança em `public/`:** aumente a versão em `public/sw.js` (`contagem-estoque-v3` → `v4`). Assim os aparelhos baixam a versão nova e mostram o aviso **"Nova versão disponível → Atualizar"**. A contagem é mantida.
 - Testar no computador: `npm run serve` e abra `http://localhost:8080` (no `localhost` a câmera também funciona).
 
 ## Bibliotecas

@@ -1,6 +1,6 @@
 // Service worker: guarda o app no aparelho para abrir sem internet.
 // Ao mudar qualquer arquivo do app, aumente a versão abaixo para os aparelhos baixarem a nova versão.
-const CACHE = 'contagem-estoque-v2';
+const CACHE = 'contagem-estoque-v3';
 
 const ASSETS = [
   './',
