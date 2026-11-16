@@ -45,6 +45,10 @@ O relatório de estoque do BI (com as colunas `CodigoDeBarra`, `Cód Item`, `Có
 - Toque no botão 📷 ao lado do campo de leitura e permita o uso da câmera.
 - Cada código conta **uma vez** enquanto continuar na frente da câmera. Para contar outra unidade igual, tire a peça da frente e aponte de novo.
 - Em lugares escuros, use o botão **Lanterna** (aparece nos aparelhos que permitem).
+- O app abre a **câmera traseira principal**. Em celulares com várias câmeras (ex.: Samsung Galaxy), o navegador costuma abrir a ultra-wide, que não foca de perto. Se a imagem ficar borrada, troque em **Câmera** abaixo do vídeo ou use o **zoom 2x** e afaste o celular.
+- Segure a uns 15–25 cm, com o código reto na faixa do meio.
+- **Plano B, "Ler por foto":** abre o app de câmera do celular, que foca melhor. Você tira a foto do código e o app lê.
+- Use o **Chrome**: ele tem o leitor de código de barras nativo do Android, mais rápido. A linha cinza abaixo do vídeo mostra a câmera, a resolução e o leitor em uso.
 - Para testar sem peças: abra **Etiquetas de teste** (`etiquetas-teste.html`), leia alguns códigos e, na etapa 3, toque em **Usar exemplo**.
 
 ### Leitor pistola (USB/Bluetooth)
@@ -84,7 +88,7 @@ src/input.css            → fonte dos estilos (Tailwind)
 ## Mudou alguma coisa?
 
 - **Mudou classes/estilos no HTML:** rode `npm install` e depois `npm run build:css` para atualizar `public/css/app.css`.
-- **Qualquer mudança em `public/`:** aumente a versão em `public/sw.js` (`contagem-estoque-v3` → `v4`). Assim os aparelhos baixam a versão nova e mostram o aviso **"Nova versão disponível → Atualizar"**. A contagem é mantida.
+- **Qualquer mudança em `public/`:** aumente a versão em `public/sw.js` (`contagem-estoque-v4` → `v5`). Assim os aparelhos baixam a versão nova e mostram o aviso **"Nova versão disponível → Atualizar"**. A contagem é mantida.
 - Testar no computador: `npm run serve` e abra `http://localhost:8080` (no `localhost` a câmera também funciona).
 
 ## Bibliotecas

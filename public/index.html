@@ -154,10 +154,26 @@
                         </div>
                     </div>
                     <div id="qr-reader" class="w-full rounded-xl overflow-hidden bg-black"></div>
-                    <p class="text-[11px] text-slate-500 mt-2">
-                        <i class="fa-solid fa-circle-info mr-1"></i>Cada código conta <strong>uma vez</strong> enquanto estiver na frente da câmera. Para contar outra unidade igual, tire a peça da frente e aponte de novo.
+
+                    <!-- Ajustes da câmera -->
+                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <label for="cameraSelect" class="text-[11px] font-bold uppercase text-slate-500">Câmera</label>
+                        <select id="cameraSelect" onchange="chooseCamera(this.value)" class="flex-1 min-w-0 text-xs font-semibold bg-slate-50 border border-slate-300 rounded-lg px-2 py-1.5"></select>
+                        <div id="zoomButtons" class="hidden flex items-center gap-1"></div>
+                    </div>
+                    <p id="cameraInfo" class="text-[10px] font-mono text-slate-400 mt-1"></p>
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        <i class="fa-solid fa-circle-info mr-1"></i>Segure a uns <strong>15–25 cm</strong> com o código na faixa do meio. Se ficar borrado, use o <strong>zoom 2x</strong> e afaste um pouco, ou troque a câmera.
+                        Cada código conta <strong>uma vez</strong> enquanto estiver na frente da câmera; para contar outra unidade igual, tire a peça da frente e aponte de novo.
                     </p>
                 </div>
+
+                <!-- Plano B: foto pelo app de câmera do celular (foco melhor) -->
+                <input type="file" id="photoInput" accept="image/*" capture="environment" class="hidden" onchange="scanFromPhoto(event)">
+                <div id="photo-reader" class="hidden"></div>
+                <button type="button" onclick="document.getElementById('photoInput').click()" class="mt-2 w-full py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-image"></i><span>Câmera com dificuldade? <u>Ler por foto</u></span>
+                </button>
 
                 <!-- Feedback -->
                 <div id="scanFeedbackBanner" class="hidden mt-3 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-2">
@@ -1008,34 +1024,183 @@
                     verbose: false
                 });
             }
-            const config = {
-                fps: 15,
-                qrbox: (w, h) => {
-                    const width = Math.max(120, Math.floor(Math.min(w * 0.9, 420)));
-                    const height = Math.max(80, Math.floor(Math.min(h * 0.55, width * 0.6)));
-                    return { width, height };
-                },
-                aspectRatio: 1.333
-            };
 
             camLast = { code: null, seenAt: 0, countedAt: 0 };
             isCameraStarting = true;
-            html5QrCode.start({ facingMode: 'environment' }, config, handleCameraDecode, () => {})
+            document.getElementById('cameraInfo').textContent = 'Abrindo a câmera...';
+
+            pickCamera()
+                .then(cameraId => {
+                    // Alta resolução: código de barras tem barras finas. Sem ela, nada é lido de perto.
+                    const video = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+                    if (cameraId) video.deviceId = { exact: cameraId };
+                    else video.facingMode = 'environment';
+                    const config = {
+                        fps: 15,
+                        qrbox: (w, h) => {
+                            const width = Math.max(120, Math.floor(Math.min(w * 0.92, 460)));
+                            const height = Math.max(80, Math.floor(Math.min(h * 0.6, width * 0.6)));
+                            return { width, height };
+                        },
+                        videoConstraints: video
+                    };
+                    return html5QrCode.start(cameraId ? { deviceId: { exact: cameraId } } : { facingMode: 'environment' }, config, handleCameraDecode, () => {});
+                })
                 .then(() => {
                     isCameraStarting = false;
                     isCameraRunning = true;
-                    setupTorchButton();
+                    setupCameraExtras();
+                    if (window.innerWidth < 1024) document.getElementById('cameraScannerContainer').scrollIntoView({ behavior: 'smooth', block: 'start' });
                 })
                 .catch(err => {
                     isCameraStarting = false;
                     isCameraRunning = false;
                     console.warn(err);
                     const msg = String(err && (err.name || err.message || err));
+                    if (/Overconstrained|NotReadable|NotFound/i.test(msg) && state.cameraId) {
+                        // A câmera salva não abriu (ex.: mudou de aparelho): volta para a escolha automática
+                        state.cameraId = null;
+                        saveState();
+                    }
                     showScanFeedback('error', /NotAllowed|Permission/i.test(msg)
                         ? 'Permissão da câmera negada. Libere a câmera nas configurações do navegador/app.'
-                        : 'Não foi possível acessar a câmera. Verifique se outro app está usando.');
+                        : 'Não foi possível abrir a câmera. Feche outros apps que usam a câmera, tente outra câmera ou use "Ler por foto".');
                     container.classList.add('hidden');
                 });
+        }
+
+        // Escolhe a câmera traseira principal. Em celulares com várias câmeras (ex.: Samsung Galaxy),
+        // o navegador costuma abrir a ultra-wide, que não foca de perto e deixa o código borrado.
+        let cameraList = [];
+        async function pickCamera() {
+            try {
+                cameraList = await Html5Qrcode.getCameras();
+            } catch (e) {
+                cameraList = [];
+            }
+            const label = c => String(c.label || '');
+            const back = cameraList.filter(c => /back|rear|traseir|environment/i.test(label(c)));
+            const pool = back.length ? back : cameraList;
+            const recommended =
+                pool.find(c => /camera2 0\b/i.test(label(c))) ||
+                pool.find(c => !/wide|ultra|tele|grande|macro|0[.,]5x/i.test(label(c))) ||
+                pool[0];
+            cameraList.forEach(c => { c.recommended = recommended && c.id === recommended.id; });
+            fillCameraSelect(back.length ? back : cameraList);
+
+            if (state.cameraId && cameraList.some(c => c.id === state.cameraId)) return state.cameraId;
+            return recommended ? recommended.id : null;
+        }
+
+        function fillCameraSelect(list) {
+            const sel = document.getElementById('cameraSelect');
+            sel.innerHTML = list.map((c, i) => {
+                const name = c.label ? c.label.replace(/camera2 (\d+), facing back/i, 'Traseira $1') : `Câmera ${i + 1}`;
+                return `<option value="${escapeHtml(c.id)}">${escapeHtml(name)}${c.recommended ? ' (principal)' : ''}</option>`;
+            }).join('');
+        }
+
+        function chooseCamera(id) {
+            state.cameraId = id || null;
+            saveState();
+            if (!html5QrCode || !(isCameraRunning || isCameraStarting)) return;
+            html5QrCode.stop().catch(() => {}).then(() => {
+                isCameraRunning = false;
+                isCameraStarting = false;
+                startCameraScanner();
+            });
+        }
+
+        function setupCameraExtras() {
+            setupTorchButton();
+            let caps = {}, settings = {};
+            try { caps = html5QrCode.getRunningTrackCapabilities() || {}; } catch (e) { /* sem informação */ }
+            try { settings = html5QrCode.getRunningTrackSettings() || {}; } catch (e) { /* sem informação */ }
+
+            // Foco contínuo, quando o aparelho deixa escolher
+            if (Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous')) {
+                html5QrCode.applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+            }
+
+            if (settings.deviceId) document.getElementById('cameraSelect').value = settings.deviceId;
+
+            // Zoom: afastar o celular e dar zoom ajuda a câmera a focar
+            const zoomBox = document.getElementById('zoomButtons');
+            if (caps.zoom && caps.zoom.max > 1) {
+                const options = [1, 1.5, 2, 3].filter(z => z >= (caps.zoom.min || 1) && z <= caps.zoom.max);
+                const current = settings.zoom || 1;
+                zoomBox.innerHTML = options.map(z =>
+                    `<button type="button" onclick="setZoom(${z})" data-zoom="${z}" class="zoom-btn px-2 py-1 rounded-md text-[11px] font-bold border ${Math.abs(current - z) < 0.01 ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300'}">${String(z).replace('.', ',')}x</button>`
+                ).join('');
+                zoomBox.classList.remove('hidden');
+                zoomBox.classList.add('flex');
+            } else {
+                zoomBox.classList.add('hidden');
+                zoomBox.classList.remove('flex');
+            }
+
+            const native = ('BarcodeDetector' in window) ? 'leitor nativo' : 'leitor ZXing';
+            const size = settings.width ? `${settings.width}×${settings.height}` : '';
+            const sel = document.getElementById('cameraSelect');
+            const camName = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : '';
+            document.getElementById('cameraInfo').textContent = [camName, size, native].filter(Boolean).join(' · ');
+        }
+
+        function setZoom(z) {
+            if (!html5QrCode || !isCameraRunning) return;
+            html5QrCode.applyVideoConstraints({ advanced: [{ zoom: z }] }).then(() => {
+                document.querySelectorAll('.zoom-btn').forEach(b => {
+                    const on = Number(b.dataset.zoom) === z;
+                    b.className = `zoom-btn px-2 py-1 rounded-md text-[11px] font-bold border ${on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300'}`;
+                });
+            }).catch(() => showScanFeedback('error', 'Este aparelho não permite zoom pelo navegador.'));
+        }
+
+        // Plano B: tirar foto com o app de câmera do celular (foco e nitidez melhores) e ler a imagem
+        let photoScanner = null;
+        async function scanFromPhoto(event) {
+            const file = event.target.files && event.target.files[0];
+            event.target.value = '';
+            if (!file) return;
+            showScanFeedback('new', 'Lendo a foto...');
+            try {
+                const code = await decodeImageFile(file);
+                processScannedCode(code);
+            } catch (e) {
+                console.warn(e);
+                playBeep('error');
+                showScanFeedback('error', 'Não achei código de barras na foto. Tire de mais perto, com o código reto, nítido e bem iluminado.');
+            }
+        }
+
+        async function decodeImageFile(file) {
+            let bitmap = null;
+            try { bitmap = await createImageBitmap(file); } catch (e) { /* formato não suportado: tenta direto */ }
+
+            if (bitmap && 'BarcodeDetector' in window) {
+                try {
+                    const found = await new BarcodeDetector().detect(bitmap);
+                    if (found.length) {
+                        // vários códigos na foto: fica com o maior
+                        found.sort((a, b) => (b.boundingBox.width * b.boundingBox.height) - (a.boundingBox.width * a.boundingBox.height));
+                        return found[0].rawValue;
+                    }
+                } catch (e) { /* cai para o ZXing */ }
+            }
+
+            // Fotos de celular são enormes (50 MP): reduz antes de ler
+            let input = file;
+            if (bitmap) {
+                const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(bitmap.width * scale);
+                canvas.height = Math.round(bitmap.height * scale);
+                canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
+                input = new File([blob], 'foto.jpg', { type: 'image/jpeg' });
+            }
+            if (!photoScanner) photoScanner = new Html5Qrcode('photo-reader', { formatsToSupport: getScannerFormats(), verbose: false });
+            return photoScanner.scanFile(input, false);
         }
 
         // Cada código só conta 1 vez enquanto continuar na frente da câmera.
